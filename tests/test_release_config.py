@@ -24,6 +24,7 @@ def test_release_workflow_builds_both_platforms_and_publishes_assets():
     assert "--copy-metadata agent-switcher" in workflow
     assert "agent-switcher-linux-x86_64.tar.gz" in workflow
     assert "agent-switcher-windows-x86_64.exe" in workflow
+    assert "GH_REPO: ${{ github.repository }}" in workflow
     assert "gh release" in workflow
 
 
