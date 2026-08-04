@@ -1,0 +1,43 @@
+# Python environments and caches
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Build and packaging output
+build/
+dist/
+*.spec
+
+# Local environment files
+.env
+.env.*
+*.env
+*.env.*
+!.env.example
+
+# Local Agent Switcher and Codex state
+/.codex/
+/.agent-switcher/
+/agent-switcher/
+**/auth.json
+**/auth.*.json
+**/.active
+**/activity.jsonl
+
+# Local development and test homes
+/.tmp/
+/tmp/
+/.test-data/
+/test-home/
+/.test-home/
+
+# Editor and OS metadata
+.DS_Store
+.idea/
+.vscode/
+*.log
