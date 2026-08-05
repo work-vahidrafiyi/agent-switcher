@@ -4,6 +4,8 @@
 
 **Keep all your Codex accounts in one place, check their remaining quota, and switch between them in seconds.**
 
+> 📌 **Current provider support:** Agent Switcher currently works with **OpenAI Codex only**. Support for other coding agents is planned for future releases.
+
 ## Why Agent Switcher? 🤔
 
 Many Codex users have more than one account: a personal account, a work account, a client account, or a separate account for another project. Signing out, signing back in, and remembering which account still has quota quickly becomes frustrating.
@@ -66,6 +68,7 @@ Agent Switcher takes care of this automatically. Before changing accounts or sta
 
 - ✅ Offline mode for disabling all quota checks
 - ✅ Direct connection or custom HTTP proxy for app requests
+- ✅ No automatic account request when the app first opens, so you can configure the proxy first
 - ✅ Login and account switching still work in offline mode
 - ✅ Network transparency panel
 - ✅ Clear list of sign-in, quota-check, and account-update requests
@@ -93,13 +96,9 @@ Agent Switcher takes care of this automatically. Before changing accounts or sta
 
 ## Screenshots 📸
 
-<!-- TODO: Capture and add these screenshots before or shortly after the repository becomes public. -->
-
 ![Agent Switcher main window](docs/screenshot-main.png)
 
 ![Expanded account usage details](docs/screenshot-usage.png)
-
-![System tray quick switch](docs/screenshot-tray.png)
 
 ## Installation 📦
 

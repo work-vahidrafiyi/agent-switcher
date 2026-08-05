@@ -207,7 +207,6 @@ class MainWindow(QMainWindow):
         self.usage_timer.setInterval(self.settings.auto_refresh_interval_ms)
         self.usage_timer.timeout.connect(self.refresh_all_usage)
         self.usage_timer.start()
-        QTimer.singleShot(350, self.refresh_all_usage)
         self.configure_hotkey()
         QTimer.singleShot(0, self.maybe_show_onboarding)
 

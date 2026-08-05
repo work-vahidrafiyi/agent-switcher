@@ -3,6 +3,7 @@ import os
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtWidgets import QApplication
+from PySide6.QtTest import QTest
 
 from agent_switcher.core.activity_log import ActivityLog
 from agent_switcher.core.providers.codex import CodexProvider
@@ -90,6 +91,37 @@ def test_main_window_applies_saved_proxy_to_core_store(tmp_path):
 
     assert store.proxy_config.mode == "custom"
     assert store.proxy_config.url == "http://proxy.test:8080"
+    window.close()
+
+
+def test_opening_main_window_does_not_fetch_usage(tmp_path):
+    app = application()
+    calls = []
+
+    class CountingProvider(CodexProvider):
+        def fetch_usage(self, profile, activity_log=None, proxy_config=None):
+            calls.append(profile.name)
+            return super().fetch_usage(
+                profile,
+                activity_log=activity_log,
+                proxy_config=proxy_config,
+            )
+
+    provider = CountingProvider(home=tmp_path / ".codex")
+    provider.home().mkdir(parents=True)
+    (provider.home() / "auth.work.json").write_text("{}", encoding="utf-8")
+    store = Store(provider, activity_log=ActivityLog(tmp_path / "state" / "activity.jsonl"))
+    window = MainWindow(
+        store,
+        PlatformIntegration(app),
+        settings=GuiSettings(global_hotkey_enabled=False, onboarding_seen=True),
+        settings_store=SettingsStore(tmp_path / "state" / "settings.json"),
+    )
+
+    QTest.qWait(500)
+
+    assert calls == []
+    assert window.usage_worker is None
     window.close()
 
 
