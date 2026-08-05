@@ -1,14 +1,15 @@
 from pathlib import Path
-from importlib.metadata import version
 import tomllib
 
 
 def test_pyproject_is_the_version_source_of_truth():
     with Path("pyproject.toml").open("rb") as handle:
         project_version = tomllib.load(handle)["project"]["version"]
+    package_init = Path("src/agent_switcher/__init__.py").read_text(encoding="utf-8")
 
-    assert project_version == "0.1.0"
-    assert version("agent-switcher") == project_version
+    assert project_version == "0.1.1"
+    assert 'version("agent-switcher")' in package_init
+    assert f'__version__ = "{project_version}"' not in package_init
 
 
 def test_release_workflow_builds_both_platforms_and_publishes_assets():

@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-08-05
+
+### Added
+
+- Persisted direct/custom HTTP proxy settings for login, usage checks, token refresh, and CLI network operations.
+
+### Fixed
+
+- Windows standalone builds no longer import the Unix-only `pty` and `termios` modules at startup.
+
 ## [0.1.0] - 2026-08-04
 
 ### Added
@@ -18,4 +28,3 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - English and Persian interfaces with RTL layout and bundled Vazirmatn font support.
 - Activity, switch-history, transparency, global-hotkey, CLI JSON, and usage-detail features.
 - PyInstaller release packaging for Linux and Windows through GitHub Actions.
-

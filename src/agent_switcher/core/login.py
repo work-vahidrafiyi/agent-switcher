@@ -1,9 +1,7 @@
 from __future__ import annotations
 
 import os
-import pty
 import re
-import select
 import shutil
 import signal
 import subprocess
@@ -14,6 +12,7 @@ from typing import Callable, Optional, Protocol
 from .providers.base import LoginMode, Provider
 from .store import Store, StoreError
 from .activity_log import run_network_call
+from .proxy import ProxyConfig
 
 ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[a-zA-Z]|\x1b\][^\x07]*(?:\x07|\x1b\\)|\r")
 URL_RE = re.compile(r"https?://[^\s'\"<>\)\]]+")
@@ -94,9 +93,15 @@ class DeviceLoginOutputParser:
 
 
 class DeviceLogin:
-    def __init__(self, provider: Provider, mode: LoginMode = "device") -> None:
+    def __init__(
+        self,
+        provider: Provider,
+        mode: LoginMode = "device",
+        proxy_config: Optional[ProxyConfig] = None,
+    ) -> None:
         self.provider = provider
         self.mode = mode
+        self.proxy_config = proxy_config or ProxyConfig()
         self.proc: Optional[subprocess.Popen[bytes]] = None
         self._stop = threading.Event()
 
@@ -131,6 +136,9 @@ class DeviceLogin:
         return resolved
 
     def _run_pty(self, command: list[str], on_url: Callback, on_code: Callback, on_line: Callback) -> DeviceLoginResult:
+        import pty
+        import select
+
         parser = DeviceLoginOutputParser(self.mode)
         master, slave = pty.openpty()
         try:
@@ -141,6 +149,7 @@ class DeviceLogin:
                 stderr=slave,
                 close_fds=True,
                 start_new_session=True,
+                env=self._subprocess_environment(),
             )
         except Exception as exc:
             os.close(master)
@@ -183,7 +192,7 @@ class DeviceLogin:
     def _run_pipes(self, command: list[str], on_url: Callback, on_code: Callback, on_line: Callback) -> DeviceLoginResult:
         parser = DeviceLoginOutputParser(self.mode)
         no_window = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-        env = dict(os.environ, NO_COLOR="1", TERM="dumb")
+        env = self._subprocess_environment(NO_COLOR="1", TERM="dumb")
         try:
             self.proc = subprocess.Popen(
                 command,
@@ -213,6 +222,9 @@ class DeviceLogin:
         returncode = self.proc.wait() if self.proc else 1
         return self._finish_result(returncode, parser)
 
+    def _subprocess_environment(self, **updates: str) -> dict[str, str]:
+        return self.proxy_config.subprocess_environment(**updates)
+
     def _finish_result(self, returncode: int, parser: DeviceLoginOutputParser) -> DeviceLoginResult:
         if self._stop.is_set():
             return DeviceLoginResult(
@@ -238,7 +250,7 @@ class DeviceLogin:
 class DeviceLoginManager:
     def __init__(self, store: Store, runner: Optional[LoginRunner] = None) -> None:
         self.store = store
-        self.runner = runner or DeviceLogin(store.provider)
+        self.runner = runner or DeviceLogin(store.provider, proxy_config=store.proxy_config)
 
     def add_profile(self, name: str, on_url: Callback = None, on_code: Callback = None, on_line: Callback = None):
         transaction = self.store.begin_login(name)

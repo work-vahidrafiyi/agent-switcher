@@ -1,15 +1,46 @@
 import json
+import subprocess
+import sys
+from pathlib import Path
 
 import pytest
 
 from agent_switcher.core.login import (
+    DeviceLogin,
     DeviceLoginManager,
     DeviceLoginOutputParser,
     DeviceLoginResult,
     LoginError,
 )
 from agent_switcher.core.providers.codex import CodexProvider
+from agent_switcher.core.proxy import ProxyConfig
 from agent_switcher.core.store import Store
+
+
+def test_core_login_import_does_not_require_unix_terminal_modules():
+    source_root = Path(__file__).resolve().parents[1] / "src"
+    script = f"""
+import sys
+sys.path.insert(0, {str(source_root)!r})
+
+class BlockUnixTerminalModules:
+    def find_spec(self, fullname, path=None, target=None):
+        if fullname in {{"pty", "termios"}}:
+            raise ModuleNotFoundError(fullname)
+        return None
+
+sys.meta_path.insert(0, BlockUnixTerminalModules())
+import agent_switcher.core.login
+"""
+
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
 
 
 class FailingRunner:
@@ -101,3 +132,21 @@ def test_codex_login_command_supports_device_and_browser_modes(tmp_path):
 
     assert provider.login_command("device") == ["codex", "login", "--device-auth"]
     assert provider.login_command("browser") == ["codex", "login"]
+
+
+def test_login_subprocess_uses_configured_proxy_and_removes_bypass_list(tmp_path):
+    runner = DeviceLogin(
+        CodexProvider(home=tmp_path),
+        proxy_config=ProxyConfig.from_values("custom", "http://proxy.test:8080"),
+    )
+
+    environment = runner.proxy_config.subprocess_environment(
+        {"NO_PROXY": "auth.openai.com", "KEEP_ME": "yes"},
+        NO_COLOR="1",
+    )
+
+    assert environment["HTTP_PROXY"] == "http://proxy.test:8080"
+    assert environment["HTTPS_PROXY"] == "http://proxy.test:8080"
+    assert environment["NO_COLOR"] == "1"
+    assert environment["KEEP_ME"] == "yes"
+    assert "NO_PROXY" not in environment
