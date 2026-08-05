@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
 )
 
 from agent_switcher.core.activity_log import ActivityLog
+from agent_switcher.core.proxy import ProxyConfig, ProxyConfigError
 from agent_switcher import __version__
 
 from .window_surface import create_shadowed_surface
@@ -109,10 +110,13 @@ class SettingsDialog(QDialog):
         global_hotkey: str,
         theme: str,
         language: str,
+        proxy_mode: str,
+        proxy_url: str,
         parent: Optional[QWidget] = None,
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle(tr("Settings"))
+        self.setMinimumWidth(540)
         _surface, layout = create_shadowed_surface(self)
         self.help_button = add_context_help(layout, "settings", self)
         self.offline_checkbox = QCheckBox(tr("Offline mode (disable usage checks)"))
@@ -138,6 +142,28 @@ class SettingsDialog(QDialog):
         )
         language_note.setWordWrap(True)
         layout.addWidget(language_note)
+        layout.addWidget(QLabel(tr("Proxy")))
+        self.proxy_mode_combo = QComboBox()
+        self.proxy_mode_combo.addItem(tr("No proxy"), "none")
+        self.proxy_mode_combo.addItem(tr("Custom HTTP proxy"), "custom")
+        selected_proxy_mode = self.proxy_mode_combo.findData(proxy_mode)
+        self.proxy_mode_combo.setCurrentIndex(max(0, selected_proxy_mode))
+        layout.addWidget(self.proxy_mode_combo)
+        self.proxy_url_label = QLabel(tr("HTTP proxy URL"))
+        layout.addWidget(self.proxy_url_label)
+        self.proxy_url_edit = QLineEdit(proxy_url)
+        self.proxy_url_edit.setPlaceholderText("http://127.0.0.1:8080")
+        layout.addWidget(self.proxy_url_edit)
+        proxy_note = QLabel(
+            tr("The proxy is used for sign-in, quota checks, and token refresh. Proxy credentials are stored locally in settings.")
+        )
+        proxy_note.setWordWrap(True)
+        layout.addWidget(proxy_note)
+        self.proxy_error = QLabel("")
+        self.proxy_error.setWordWrap(True)
+        layout.addWidget(self.proxy_error)
+        self.proxy_mode_combo.currentIndexChanged.connect(self._update_proxy_fields)
+        self._update_proxy_fields()
         layout.addWidget(QLabel(tr("Low-quota warning threshold")))
         self.low_quota_threshold = QSpinBox()
         self.low_quota_threshold.setRange(0, 100)
@@ -170,6 +196,29 @@ class SettingsDialog(QDialog):
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
+
+    def proxy_config(self) -> ProxyConfig:
+        return ProxyConfig.from_values(
+            self.proxy_mode_combo.currentData(),
+            self.proxy_url_edit.text(),
+        )
+
+    def accept(self) -> None:
+        try:
+            self.proxy_config()
+        except ProxyConfigError as exc:
+            self.proxy_error.setText(tr(str(exc)))
+            self.proxy_url_edit.setFocus()
+            return
+        self.proxy_error.clear()
+        super().accept()
+
+    def _update_proxy_fields(self) -> None:
+        custom = self.proxy_mode_combo.currentData() == "custom"
+        self.proxy_url_label.setEnabled(custom)
+        self.proxy_url_edit.setEnabled(custom)
+        if not custom:
+            self.proxy_error.clear()
 
 
 class HistoryDialog(QDialog):

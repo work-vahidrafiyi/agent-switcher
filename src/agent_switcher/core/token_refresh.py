@@ -6,11 +6,12 @@ from datetime import datetime, timezone
 from typing import Any, Callable, Mapping, Optional, TYPE_CHECKING
 from urllib.error import HTTPError
 from urllib.parse import urlencode
-from urllib.request import Request, urlopen
+from urllib.request import Request
 
 from .files import atomic_write
 from .identity import decode_jwt
 from .activity_log import ActivityLog, NetworkCallFailure, run_network_call
+from .proxy import ProxyConfig
 
 if TYPE_CHECKING:
     from .store import Profile
@@ -38,6 +39,7 @@ def refresh_profile_token_if_needed(
     transport: Optional[Transport] = None,
     now: Optional[datetime] = None,
     activity_log: Optional[ActivityLog] = None,
+    proxy_config: Optional[ProxyConfig] = None,
 ) -> TokenRefreshResult:
     if profile.active:
         return TokenRefreshResult(auth=auth)
@@ -68,7 +70,7 @@ def refresh_profile_token_if_needed(
     )
 
     def perform_request() -> Mapping[str, Any]:
-        opener = transport or urlopen
+        opener = transport or (proxy_config or ProxyConfig()).open
         response = opener(request, timeout=REFRESH_TIMEOUT_SECONDS)
         try:
             status = getattr(response, "status", None)

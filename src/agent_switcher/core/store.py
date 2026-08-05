@@ -12,6 +12,7 @@ from .files import atomic_write
 from .activity_log import ActivityLog
 from .providers.base import Provider
 from .providers.codex import CodexProvider
+from .proxy import ProxyConfig
 from .usage import Usage, read_profile_account_id
 
 NAME_RE = re.compile(r"^[A-Za-z0-9._-]+$")
@@ -56,12 +57,22 @@ class LoginTransaction:
 
 
 class Store:
-    def __init__(self, provider: Optional[Provider] = None, activity_log: Optional[ActivityLog] = None) -> None:
+    def __init__(
+        self,
+        provider: Optional[Provider] = None,
+        activity_log: Optional[ActivityLog] = None,
+        proxy_config: Optional[ProxyConfig] = None,
+    ) -> None:
         self.provider = provider or CodexProvider()
         self.home = self.provider.home()
         self.auth_file = self.provider.auth_file()
         self.active_file = self.home / ".active"
         self.activity_log = activity_log or ActivityLog.for_provider_home(self.home)
+        self.proxy_config = proxy_config or ProxyConfig()
+
+    def set_proxy_config(self, proxy_config: ProxyConfig) -> None:
+        proxy_config.validate()
+        self.proxy_config = proxy_config
 
     def profile_path(self, name: str) -> Path:
         self.validate_name(name)
@@ -132,9 +143,12 @@ class Store:
                 identity=profile.identity,
             )
             parameters = inspect.signature(fetcher).parameters
+            kwargs = {}
             if "activity_log" in parameters:
-                return fetcher(usage_profile, activity_log=self.activity_log)
-            return fetcher(usage_profile)
+                kwargs["activity_log"] = self.activity_log
+            if "proxy_config" in parameters:
+                kwargs["proxy_config"] = self.proxy_config
+            return fetcher(usage_profile, **kwargs)
         except Exception as exc:
             return Usage.unavailable(f"Usage is unavailable: {type(exc).__name__}.")
 

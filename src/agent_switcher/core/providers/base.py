@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Literal, Protocol, TYPE_CHECKING
+from typing import Literal, Optional, Protocol, TYPE_CHECKING
 
 from ..identity import Identity
 from ..usage import Usage
 from ..activity_log import ActivityLog
+from ..proxy import ProxyConfig
 
 if TYPE_CHECKING:
     from ..store import Profile
@@ -32,6 +33,11 @@ class Provider(Protocol):
     def running_processes(self) -> list[str]:
         ...
 
-    def fetch_usage(self, profile: "Profile", activity_log: ActivityLog = None) -> Usage:
+    def fetch_usage(
+        self,
+        profile: "Profile",
+        activity_log: Optional[ActivityLog] = None,
+        proxy_config: Optional[ProxyConfig] = None,
+    ) -> Usage:
         """Optional capability; Store supplies this fallback when absent."""
         return Usage.unavailable("Usage is not supported by this provider.")

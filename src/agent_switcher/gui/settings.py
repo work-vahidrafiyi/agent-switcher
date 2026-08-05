@@ -5,6 +5,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 
 from agent_switcher.core.files import atomic_write
+from agent_switcher.core.proxy import ProxyConfig, ProxyConfigError
 
 
 @dataclass(frozen=True)
@@ -20,6 +21,8 @@ class GuiSettings:
     theme: str = "system"
     onboarding_seen: bool = False
     language: str = "en"
+    proxy_mode: str = "none"
+    proxy_url: str = ""
 
 
 DEFAULT_SETTINGS = GuiSettings()
@@ -36,6 +39,10 @@ class SettingsStore:
             return DEFAULT_SETTINGS
         if not isinstance(data, dict):
             return DEFAULT_SETTINGS
+        try:
+            proxy_config = ProxyConfig.from_values(data.get("proxy_mode"), data.get("proxy_url"))
+        except ProxyConfigError:
+            proxy_config = ProxyConfig()
         return GuiSettings(
             auto_refresh_interval_ms=_positive_int(data.get("auto_refresh_interval_ms"), DEFAULT_SETTINGS.auto_refresh_interval_ms),
             request_delay_ms=_positive_int(data.get("request_delay_ms"), DEFAULT_SETTINGS.request_delay_ms),
@@ -54,6 +61,8 @@ class SettingsStore:
             theme=_theme(data.get("theme")),
             onboarding_seen=data.get("onboarding_seen") is True,
             language=_language(data.get("language")),
+            proxy_mode=proxy_config.mode,
+            proxy_url=proxy_config.url,
         )
 
     def save(self, settings: GuiSettings) -> None:

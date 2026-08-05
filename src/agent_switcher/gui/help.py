@@ -24,6 +24,7 @@ _GUIDES = {
         "Settings",
         [
             ("Usage controls", "Offline mode stops quota checks without disabling login or switching."),
+            ("Network route", "Choose a direct connection or set an HTTP proxy for app requests."),
             ("Appearance", "Theme changes apply immediately. Language changes fully apply after restart."),
             ("Automation", "Warning thresholds, Smart pick freshness, and the global hotkey are configured here."),
         ],

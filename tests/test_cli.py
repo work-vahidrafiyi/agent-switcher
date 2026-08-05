@@ -8,6 +8,7 @@ from agent_switcher import cli
 from agent_switcher.cli import build_parser, main
 from agent_switcher.core.usage import Usage
 from agent_switcher import __version__
+from agent_switcher.core.proxy import ProxyConfig
 
 
 def test_json_flag_works_after_command(monkeypatch, tmp_path, capsys):
@@ -100,3 +101,27 @@ def test_list_without_details_does_not_fetch_or_add_usage(monkeypatch, tmp_path,
     assert main(["list", "--json"]) == 0
     profile = json.loads(capsys.readouterr().out)["profiles"][0]
     assert "usage" not in profile
+
+
+def test_cli_uses_proxy_saved_by_gui(monkeypatch, tmp_path, capsys):
+    codex_home = tmp_path / ".codex"
+    codex_home.mkdir()
+    state_home = tmp_path / "agent-switcher"
+    state_home.mkdir()
+    (state_home / "settings.json").write_text(
+        '{"proxy_mode":"custom","proxy_url":"http://proxy.test:8080"}',
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("CODEX_HOME", str(codex_home))
+    configured = []
+    original = cli.Store.set_proxy_config
+
+    def capture(store, proxy_config):
+        configured.append(proxy_config)
+        original(store, proxy_config)
+
+    monkeypatch.setattr(cli.Store, "set_proxy_config", capture)
+
+    assert main(["list", "--json"]) == 0
+    assert configured == [ProxyConfig(mode="custom", url="http://proxy.test:8080")]
+    assert json.loads(capsys.readouterr().out)["profiles"] == []

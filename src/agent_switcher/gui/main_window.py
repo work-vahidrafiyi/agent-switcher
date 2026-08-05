@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
 from agent_switcher.core.store import Profile, Store, StoreError
 from agent_switcher.core.usage import Usage
 from agent_switcher.core.smart_pick import choose_smart_profile, stale_usage_profiles
+from agent_switcher.core.proxy import ProxyConfig
 
 from .add_dialog import AddAccountDialog
 from .icons import set_action_icon
@@ -57,6 +58,7 @@ class MainWindow(QMainWindow):
         self.platform = platform
         self.settings = settings
         self.settings_store = settings_store or SettingsStore(store.activity_log.path.parent / "settings.json")
+        self.store.set_proxy_config(ProxyConfig.from_values(settings.proxy_mode, settings.proxy_url))
         self.rows: dict[str, ProfileRow] = {}
         self.usage_cache: dict[str, Usage] = {}
         self.usage_inflight: set[str] = set()
@@ -420,12 +422,15 @@ class MainWindow(QMainWindow):
             self.settings.global_hotkey,
             self.settings.theme,
             self.settings.language,
+            self.settings.proxy_mode,
+            self.settings.proxy_url,
             self,
         )
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
         previous = self.settings.offline_mode
         previous_language = self.settings.language
+        proxy_config = dialog.proxy_config()
         self.settings = replace(
             self.settings,
             offline_mode=dialog.offline_checkbox.isChecked(),
@@ -436,7 +441,10 @@ class MainWindow(QMainWindow):
             global_hotkey=dialog.hotkey_edit.text().strip() or self.settings.global_hotkey,
             theme=str(dialog.theme_combo.currentData()),
             language=str(dialog.language_combo.currentData()),
+            proxy_mode=proxy_config.mode,
+            proxy_url=proxy_config.url,
         )
+        self.store.set_proxy_config(proxy_config)
         self.settings_store.save(self.settings)
         apply_theme(QApplication.instance(), self.settings.theme)
         self.configure_hotkey()

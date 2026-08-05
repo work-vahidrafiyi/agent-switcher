@@ -8,6 +8,7 @@ from typing import Optional, TYPE_CHECKING
 from ..identity import Identity, parse_auth_identity
 from ..usage import Usage, fetch_codex_usage
 from ..activity_log import ActivityLog
+from ..proxy import ProxyConfig
 from .base import LoginMode
 
 if TYPE_CHECKING:
@@ -42,8 +43,13 @@ class CodexProvider:
             return self._running_processes_windows()
         return self._running_processes_unix()
 
-    def fetch_usage(self, profile: "Profile", activity_log: ActivityLog = None) -> Usage:
-        return fetch_codex_usage(profile, activity_log=activity_log)
+    def fetch_usage(
+        self,
+        profile: "Profile",
+        activity_log: Optional[ActivityLog] = None,
+        proxy_config: Optional[ProxyConfig] = None,
+    ) -> Usage:
+        return fetch_codex_usage(profile, activity_log=activity_log, proxy_config=proxy_config)
 
     def _running_processes_unix(self) -> list[str]:
         try:

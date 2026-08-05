@@ -7,7 +7,7 @@ from PySide6.QtWidgets import QApplication
 from agent_switcher.core.activity_log import ActivityLog
 from agent_switcher.core.providers.codex import CodexProvider
 from agent_switcher.core.store import Store
-from agent_switcher.gui.dialogs import AboutDialog, HistoryDialog, TransparencyDialog
+from agent_switcher.gui.dialogs import AboutDialog, HistoryDialog, SettingsDialog, TransparencyDialog
 from agent_switcher import __version__
 from agent_switcher.gui.main_window import MainWindow
 from agent_switcher.gui.platform import PlatformIntegration
@@ -29,6 +29,8 @@ def test_settings_store_persists_offline_mode(tmp_path):
             theme="light",
             onboarding_seen=True,
             language="fa",
+            proxy_mode="custom",
+            proxy_url="http://proxy.test:8080",
         )
     )
 
@@ -37,6 +39,58 @@ def test_settings_store_persists_offline_mode(tmp_path):
     assert settings_store.load().theme == "light"
     assert settings_store.load().onboarding_seen is True
     assert settings_store.load().language == "fa"
+    assert settings_store.load().proxy_mode == "custom"
+    assert settings_store.load().proxy_url == "http://proxy.test:8080"
+
+
+def test_proxy_controls_validate_custom_mode_and_disable_url_for_no_proxy():
+    app = application()
+    dialog = SettingsDialog(
+        False,
+        15,
+        10,
+        20,
+        False,
+        "<ctrl>+<alt>+<space>",
+        "system",
+        "en",
+        "none",
+        "http://saved-proxy.test:8080",
+    )
+
+    assert dialog.proxy_url_edit.isEnabled() is False
+    dialog.proxy_mode_combo.setCurrentIndex(dialog.proxy_mode_combo.findData("custom"))
+    assert dialog.proxy_url_edit.isEnabled() is True
+    assert dialog.proxy_config().url == "http://saved-proxy.test:8080"
+
+    dialog.proxy_url_edit.setText("socks5://proxy.test:1080")
+    dialog.accept()
+    assert dialog.result() == 0
+    assert "http://" in dialog.proxy_error.text()
+    dialog.close()
+
+
+def test_main_window_applies_saved_proxy_to_core_store(tmp_path):
+    app = application()
+    provider = CodexProvider(home=tmp_path / ".codex")
+    provider.home().mkdir(parents=True)
+    store = Store(provider, activity_log=ActivityLog(tmp_path / "state" / "activity.jsonl"))
+    window = MainWindow(
+        store,
+        PlatformIntegration(app),
+        settings=GuiSettings(
+            offline_mode=True,
+            global_hotkey_enabled=False,
+            onboarding_seen=True,
+            proxy_mode="custom",
+            proxy_url="http://proxy.test:8080",
+        ),
+        settings_store=SettingsStore(tmp_path / "state" / "settings.json"),
+    )
+
+    assert store.proxy_config.mode == "custom"
+    assert store.proxy_config.url == "http://proxy.test:8080"
+    window.close()
 
 
 def test_offline_mode_blocks_all_and_per_profile_refresh(tmp_path):

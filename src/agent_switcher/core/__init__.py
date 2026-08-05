@@ -5,6 +5,7 @@ from .usage import Usage, UsageResult, fetch_codex_usage, fetch_usage
 from .token_refresh import TokenRefreshResult, refresh_profile_token_if_needed
 from .activity_log import ActivityLog, run_network_call
 from .smart_pick import SmartPickResult, choose_smart_profile, stale_usage_profiles
+from .proxy import ProxyConfig, ProxyConfigError, ProxyMode, load_proxy_config
 
 __all__ = [
     "DeviceLogin",
@@ -21,6 +22,10 @@ __all__ = [
     "TokenRefreshResult",
     "ActivityLog",
     "SmartPickResult",
+    "ProxyConfig",
+    "ProxyConfigError",
+    "ProxyMode",
+    "load_proxy_config",
     "decode_jwt",
     "parse_auth_identity",
     "fetch_codex_usage",

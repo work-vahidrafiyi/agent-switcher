@@ -6,10 +6,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Mapping, Optional, TYPE_CHECKING
 from urllib.error import HTTPError
-from urllib.request import Request, urlopen
+from urllib.request import Request
 
 from .token_refresh import refresh_profile_token_if_needed
 from .activity_log import ActivityLog, NetworkCallFailure, run_network_call
+from .proxy import ProxyConfig
 
 if TYPE_CHECKING:
     from .store import Profile
@@ -63,6 +64,7 @@ def fetch_usage(
     refresh_transport: Optional[Transport] = None,
     now: Optional[datetime] = None,
     activity_log: Optional[ActivityLog] = None,
+    proxy_config: Optional[ProxyConfig] = None,
 ) -> Usage:
     """Fetch usage from a saved Codex profile without touching live auth.json."""
     checked_at = now or _utc_now()
@@ -81,6 +83,7 @@ def fetch_usage(
         transport=refresh_transport,
         now=checked_at,
         activity_log=activity_log,
+        proxy_config=proxy_config,
     )
     if refresh.error:
         return Usage.unavailable(refresh.error, checked_at)
@@ -106,7 +109,7 @@ def fetch_usage(
     )
 
     def perform_request() -> Usage:
-        opener = transport or urlopen
+        opener = transport or (proxy_config or ProxyConfig()).open
         response = opener(request, timeout=USAGE_TIMEOUT_SECONDS)
         try:
             status = getattr(response, "status", None)

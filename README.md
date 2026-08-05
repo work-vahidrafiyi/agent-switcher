@@ -65,6 +65,7 @@ Agent Switcher takes care of this automatically. Before changing accounts or sta
 ### 🛡️ Privacy and control
 
 - ✅ Offline mode for disabling all quota checks
+- ✅ Direct connection or custom HTTP proxy for app requests
 - ✅ Login and account switching still work in offline mode
 - ✅ Network transparency panel
 - ✅ Clear list of sign-in, quota-check, and account-update requests

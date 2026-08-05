@@ -7,6 +7,7 @@ from urllib.parse import parse_qs
 
 from agent_switcher.core.identity import Identity
 from agent_switcher.core.store import Profile
+from agent_switcher.core.proxy import ProxyConfig
 from agent_switcher.core.usage import USAGE_TIMEOUT_SECONDS, fetch_codex_usage
 
 
@@ -293,3 +294,34 @@ def test_live_profile_never_uses_background_refresh_or_writes_saved_file(tmp_pat
     assert usage.available is True
     assert refresh_calls == []
     assert profile.path.read_bytes() == before
+
+
+def test_proxy_is_used_for_token_refresh_and_usage_request(tmp_path):
+    profile = write_profile(
+        tmp_path,
+        tokens={
+            "access_token": make_jwt(int(CHECKED_AT.timestamp()) - 1),
+            "refresh_token": "old-refresh",
+            "account_id": "account-synthetic",
+        },
+    )
+    calls = []
+
+    class RecordingProxy(ProxyConfig):
+        def open(self, request, timeout):
+            calls.append((request.full_url, timeout))
+            if request.full_url == "https://auth.openai.com/oauth/token":
+                return Response({"access_token": "new-access", "refresh_token": "new-refresh"})
+            return Response(usage_payload())
+
+    usage = fetch_codex_usage(
+        profile,
+        proxy_config=RecordingProxy(mode="custom", url="http://proxy.test:8080"),
+        now=CHECKED_AT,
+    )
+
+    assert usage.available is True
+    assert calls == [
+        ("https://auth.openai.com/oauth/token", 5.0),
+        ("https://chatgpt.com/backend-api/wham/usage", 5.0),
+    ]

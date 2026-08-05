@@ -21,7 +21,7 @@ class LoginWorker(QThread):
         super().__init__()
         self.store = store
         self.name = name
-        self.runner = DeviceLogin(store.provider, mode=mode)
+        self.runner = DeviceLogin(store.provider, mode=mode, proxy_config=store.proxy_config)
 
     def cancel(self) -> None:
         self.runner.cancel()

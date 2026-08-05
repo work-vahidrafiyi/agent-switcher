@@ -9,6 +9,7 @@ from . import __version__
 from .core.login import DeviceLoginManager, LoginError
 from .core.providers.codex import CodexProvider
 from .core.store import Store, StoreError
+from .core.proxy import load_proxy_config
 
 EXIT_OK = 0
 EXIT_USER = 1
@@ -47,6 +48,7 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: Optional[list[str]] = None) -> int:
     args = build_parser().parse_args(argv)
     store = Store(CodexProvider())
+    store.set_proxy_config(load_proxy_config(store.activity_log.path.parent / "settings.json"))
 
     try:
         if args.command == "list":

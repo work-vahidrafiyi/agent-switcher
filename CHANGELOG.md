@@ -7,11 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.1.1] - 2026-08-05
+## [0.2.0] - 2026-08-05
 
 ### Added
 
 - Persisted direct/custom HTTP proxy settings for login, usage checks, token refresh, and CLI network operations.
+
+## [0.1.1] - 2026-08-05
 
 ### Fixed
 
