@@ -120,6 +120,7 @@ class DeviceLogin:
         self.proxy_config = proxy_config or ProxyConfig()
         self.proc: Optional[subprocess.Popen[bytes]] = None
         self._stop = threading.Event()
+        self._resolved_bin_dir: Optional[str] = None
 
     def cancel(self) -> None:
         self._stop.set()
@@ -148,11 +149,13 @@ class DeviceLogin:
         return self._run_pipes(command, on_url=on_url, on_code=on_code, on_line=on_line)
 
     def _resolve_command(self, command: list[str]) -> Optional[list[str]]:
+        self._resolved_bin_dir = None
         if not command:
             return None
         exe = shutil.which(command[0]) or _find_desktop_executable(command[0])
         if not exe:
             return None
+        self._resolved_bin_dir = str(Path(exe).parent)
         resolved = [exe, *command[1:]]
         if os.name == "nt" and exe.lower().endswith((".cmd", ".bat")):
             return ["cmd", "/c", *resolved]
@@ -246,7 +249,13 @@ class DeviceLogin:
         return self._finish_result(returncode, parser)
 
     def _subprocess_environment(self, **updates: str) -> dict[str, str]:
-        return self.proxy_config.subprocess_environment(**updates)
+        environment = self.proxy_config.subprocess_environment(**updates)
+        if self._resolved_bin_dir:
+            current_path = environment.get("PATH", "")
+            entries = [entry for entry in current_path.split(os.pathsep) if entry]
+            entries = [entry for entry in entries if entry != self._resolved_bin_dir]
+            environment["PATH"] = os.pathsep.join([self._resolved_bin_dir, *entries])
+        return environment
 
     def _finish_result(self, returncode: int, parser: DeviceLoginOutputParser) -> DeviceLoginResult:
         if self._stop.is_set():

@@ -1,4 +1,5 @@
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -165,3 +166,26 @@ def test_login_subprocess_uses_configured_proxy_and_removes_bypass_list(tmp_path
     assert environment["NO_COLOR"] == "1"
     assert environment["KEEP_ME"] == "yes"
     assert "NO_PROXY" not in environment
+
+
+def test_desktop_discovered_codex_adds_its_nvm_node_directory_to_path(tmp_path, monkeypatch):
+    node_bin = tmp_path / "versions" / "node" / "v24.12.0" / "bin"
+    node_bin.mkdir(parents=True)
+    codex = node_bin / "codex"
+    node = node_bin / "node"
+    codex.write_text("#!/usr/bin/env node\nexit 0\n", encoding="utf-8")
+    node.write_text("#!/bin/sh\nexec /bin/sh \"$@\"\n", encoding="utf-8")
+    codex.chmod(0o755)
+    node.chmod(0o755)
+
+    monkeypatch.setenv("NVM_DIR", str(tmp_path))
+    monkeypatch.setenv("PATH", "/usr/bin:/bin")
+    monkeypatch.setattr("agent_switcher.core.login.shutil.which", lambda _name: None)
+
+    runner = DeviceLogin(CodexProvider(home=tmp_path / "codex-home"))
+    command = runner._resolve_command(["codex", "login", "--device-auth"])
+    environment = runner._subprocess_environment()
+
+    assert command == [str(codex), "login", "--device-auth"]
+    assert environment["PATH"].split(os.pathsep)[0] == str(node_bin)
+    assert subprocess.run([str(codex)], env=environment, check=False).returncode == 0
