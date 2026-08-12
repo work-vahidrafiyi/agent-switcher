@@ -5,11 +5,23 @@ This file lists the changes users will notice in each Agent Switcher release.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.3.1] - 2026-08-12
+## [1.5.0] - 2026-08-12
+
+### Added
+
+- Add automatic and manual update checks with SHA-256 verification, in-place installation, and restart.
+- Add per-account IP Guard checks before OpenAI sign-in, usage refreshes, and account switching without storing raw IP addresses.
+- Add the launch-time local-privacy notice, configurable global quick-switch hotkey, smarter account selection, proxy retries, and expanded Codex CLI discovery.
+
+### Changed
+
+- Redesign the main interface, dialogs, and Settings with clearer sections and concise safety warnings.
+- Reduce the Linux standalone download by more than 50% compared with v0.2.1 while retaining tested Qt functionality.
 
 ### Fixed
 
 - Add the discovered NVM Codex directory to the login subprocess `PATH`, so Linux desktop launches can resolve the matching `node` runtime instead of failing with `/usr/bin/env: 'node': No such file or directory`.
+- Force file-based Codex credentials for reliable account switching and improve browser/device authorization parsing.
 
 ## [0.3.0] - 2026-08-12
 
