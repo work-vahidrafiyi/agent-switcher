@@ -42,6 +42,7 @@ Agent Switcher takes care of this automatically. Before changing accounts or sta
 - ✅ Keeps inactive accounts signed in during quota checks
 - ✅ Low-quota tray notifications
 - ✅ Friendly "usage unavailable" state when a check fails
+- ✅ Automatic retries for temporary connection and proxy failures
 
 ### 🧠 Smart Pick
 
@@ -49,6 +50,7 @@ Agent Switcher takes care of this automatically. Before changing accounts or sta
 - ✅ Checks both five-hour and weekly limits
 - ✅ Uses recent saved results to avoid unnecessary requests
 - ✅ Refreshes old results before choosing
+- ✅ Refreshes incomplete or failed results before choosing
 - ✅ Never guesses when no reliable data is available
 
 ### 🖥️ Desktop and tray
@@ -61,6 +63,7 @@ Agent Switcher takes care of this automatically. Before changing accounts or sta
 - ✅ Configurable system-wide keyboard shortcut
 - ✅ Small quick-switch popup near the tray
 - ✅ Graceful tray fallback when a global hotkey is unavailable
+- ✅ In-app update checks with verified download, automatic install, and restart for standalone releases
 
 > ℹ️ The keyboard shortcut works best on Windows and X11 Linux. Wayland may block it, but tray switching still works.
 
@@ -74,6 +77,11 @@ Agent Switcher takes care of this automatically. Before changing accounts or sta
 - ✅ Clear list of sign-in, quota-check, and account-update requests
 - ✅ Local activity log with automatic size limits
 - ✅ API-key accounts are skipped during quota checks
+- ✅ IP Guard checks the public route before sign-in, usage checks, and account switching
+- ✅ Per-account IP fingerprints stay local; raw public IP addresses are never saved
+- ✅ Changed or unverifiable routes are stopped before an OpenAI request and require explicit confirmation
+
+IP Guard uses a small public-IP lookup through the same direct or proxy route as Agent Switcher's OpenAI requests. A keyed fingerprint is stored separately for each account. The updater's GitHub traffic is not treated as account activity. Browser sign-in itself runs in your browser, so its route can differ from the Codex CLI route and cannot be enforced by Agent Switcher.
 
 ### 🎨 Personalization and accessibility
 
@@ -104,7 +112,9 @@ Agent Switcher takes care of this automatically. Before changing accounts or sta
 
 Agent Switcher currently supports **Linux and Windows**. macOS has not been built or tested and is not supported yet.
 
-The Codex CLI must be installed and available as `codex` to add an account.
+The Codex CLI must be installed to add an account. Install it with `npm install -g @openai/codex`. The desktop app searches `PATH` plus common npm, NVM, and local binary locations.
+
+Agent Switcher sets `cli_auth_credentials_store = "file"` in Codex's `config.toml`. This is required because switching works by safely replacing `auth.json`; OS-keyring credentials would otherwise override the selected account, especially on Windows.
 
 ### Install with pipx
 
@@ -186,7 +196,6 @@ These features are planned, but **are not included in the current release**:
 - 🔜 VS Code extension for switching without reloading
 - 🔜 Claude Code account support
 - 🔜 A separate `CODEX_HOME` for every account
-- 🔜 In-app update checks and release notifications
 
 ## Responsible use 🤝
 

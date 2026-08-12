@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import json
 import os
+import socket
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, Mapping, Optional
 from urllib.parse import urlsplit
 from urllib.request import ProxyHandler, Request, build_opener
+from urllib.error import HTTPError, URLError
 
 
 ProxyMode = Literal["none", "custom"]
@@ -20,6 +23,8 @@ PROXY_ENV_KEYS = (
     "http_proxy",
     "no_proxy",
 )
+TRANSIENT_HTTP_STATUS = {408, 425, 429, 500, 502, 503, 504}
+NETWORK_RETRY_DELAYS = (0.35, 1.0)
 
 
 class ProxyConfigError(ValueError):
@@ -60,7 +65,19 @@ class ProxyConfig:
 
     def open(self, request: Request, timeout: float):
         handler = ProxyHandler(self.proxies())
-        return build_opener(handler).open(request, timeout=timeout)
+        opener = build_opener(handler)
+        for attempt in range(len(NETWORK_RETRY_DELAYS) + 1):
+            try:
+                return opener.open(request, timeout=timeout)
+            except HTTPError as exc:
+                if exc.code not in TRANSIENT_HTTP_STATUS or attempt >= len(NETWORK_RETRY_DELAYS):
+                    raise
+                exc.close()
+            except (URLError, TimeoutError, socket.timeout, ConnectionError):
+                if attempt >= len(NETWORK_RETRY_DELAYS):
+                    raise
+            time.sleep(NETWORK_RETRY_DELAYS[attempt])
+        raise RuntimeError("Network retry loop exited unexpectedly.")
 
     def proxies(self) -> dict[str, str]:
         if self.mode == "none":
@@ -81,8 +98,10 @@ class ProxyConfig:
         else:
             environment.update(
                 {
+                    "ALL_PROXY": self.url,
                     "HTTP_PROXY": self.url,
                     "HTTPS_PROXY": self.url,
+                    "all_proxy": self.url,
                     "http_proxy": self.url,
                     "https_proxy": self.url,
                 }

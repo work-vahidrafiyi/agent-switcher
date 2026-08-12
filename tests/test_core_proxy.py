@@ -1,4 +1,5 @@
 from urllib.request import Request
+from urllib.error import URLError
 
 import pytest
 
@@ -33,6 +34,7 @@ def test_custom_http_proxy_is_used_for_http_https_and_subprocesses():
     environment = config.subprocess_environment({"NO_PROXY": "chatgpt.com", "KEEP_ME": "yes"})
     assert environment["HTTP_PROXY"] == config.url
     assert environment["HTTPS_PROXY"] == config.url
+    assert environment["ALL_PROXY"] == config.url
     assert environment["http_proxy"] == config.url
     assert environment["https_proxy"] == config.url
     assert environment["KEEP_ME"] == "yes"
@@ -72,6 +74,25 @@ def test_proxy_transport_builds_an_explicit_proxy_handler(monkeypatch):
         "request": request,
         "timeout": 5.0,
     }
+
+
+def test_proxy_transport_retries_temporary_connection_failures(monkeypatch):
+    attempts = []
+
+    class Opener:
+        def open(self, request, timeout):
+            attempts.append((request.full_url, timeout))
+            if len(attempts) < 3:
+                raise URLError("temporary network failure")
+            return "response"
+
+    monkeypatch.setattr("agent_switcher.core.proxy.build_opener", lambda _handler: Opener())
+    monkeypatch.setattr("agent_switcher.core.proxy.time.sleep", lambda _delay: None)
+
+    result = ProxyConfig().open(Request("https://example.test"), 5.0)
+
+    assert result == "response"
+    assert len(attempts) == 3
 
 
 def test_load_proxy_config_reads_saved_app_setting_and_falls_back_safely(tmp_path):

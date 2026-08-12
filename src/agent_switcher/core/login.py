@@ -8,6 +8,8 @@ import subprocess
 import threading
 from dataclasses import dataclass, field
 from typing import Callable, Optional, Protocol
+from pathlib import Path
+from html import unescape
 
 from .providers.base import LoginMode, Provider
 from .store import Store, StoreError
@@ -57,6 +59,7 @@ class DeviceLoginOutputParser:
         self.url: Optional[str] = None
         self.code: Optional[str] = None
         self.raw_output: list[str] = []
+        self._url_rank = -1
 
     def feed(self, text: str, on_url: Callback = None, on_code: Callback = None, on_line: Callback = None) -> None:
         clean = ANSI_RE.sub("\n", text)
@@ -70,11 +73,13 @@ class DeviceLoginOutputParser:
         if on_line:
             on_line(line)
 
-        if self.url is None:
-            urls = URL_RE.findall(line)
-            preferred = [url for url in urls if re.search(r"device|activate|auth", url, re.I)]
-            if preferred or urls:
-                self.url = (preferred or urls)[0].rstrip(".,")
+        urls = URL_RE.findall(line)
+        if urls:
+            ranked = max((self._url_priority(url), index, url) for index, url in enumerate(urls))
+            rank, _index, raw_url = ranked
+            if self.url is None or rank > self._url_rank:
+                self.url = unescape(raw_url).rstrip(".,;:")
+                self._url_rank = rank
                 if on_url:
                     on_url(self.url)
 
@@ -90,6 +95,17 @@ class DeviceLoginOutputParser:
                 self.code = match.group(1)
                 if on_code:
                     on_code(self.code)
+
+    def _url_priority(self, url: str) -> int:
+        lowered = url.lower()
+        if self.mode == "device":
+            if "device" in lowered or "activate" in lowered:
+                return 3
+            if "oauth" in lowered or "authorize" in lowered:
+                return 1
+        elif "oauth" in lowered or "authorize" in lowered:
+            return 3
+        return 2 if "auth.openai.com" in lowered else 0
 
 
 class DeviceLogin:
@@ -119,7 +135,14 @@ class DeviceLogin:
     def run(self, on_url: Callback = None, on_code: Callback = None, on_line: Callback = None) -> DeviceLoginResult:
         command = self._resolve_command(self.provider.login_command(self.mode))
         if command is None:
-            return DeviceLoginResult(ok=False, error=f"{self.provider.name} CLI is not installed.", returncode=127)
+            if self.provider.name == "codex":
+                error = (
+                    "Codex CLI was not found. Install it with "
+                    "npm install -g @openai/codex, then try again."
+                )
+            else:
+                error = f"{self.provider.name} CLI is not installed."
+            return DeviceLoginResult(ok=False, error=error, returncode=127)
         if os.name == "posix":
             return self._run_pty(command, on_url=on_url, on_code=on_code, on_line=on_line)
         return self._run_pipes(command, on_url=on_url, on_code=on_code, on_line=on_line)
@@ -127,7 +150,7 @@ class DeviceLogin:
     def _resolve_command(self, command: list[str]) -> Optional[list[str]]:
         if not command:
             return None
-        exe = shutil.which(command[0])
+        exe = shutil.which(command[0]) or _find_desktop_executable(command[0])
         if not exe:
             return None
         resolved = [exe, *command[1:]]
@@ -276,3 +299,45 @@ class DeviceLoginManager:
             except StoreError:
                 pass
             raise
+
+
+def _find_desktop_executable(name: str) -> Optional[str]:
+    """Find CLIs omitted from the PATH inherited by desktop launchers."""
+    home = Path.home()
+    candidates: list[Path] = []
+    if os.name == "nt":
+        suffixes = (".cmd", ".exe", ".bat", "")
+        roots = []
+        if os.environ.get("APPDATA"):
+            roots.append(Path(os.environ["APPDATA"]) / "npm")
+        if os.environ.get("LOCALAPPDATA"):
+            roots.append(Path(os.environ["LOCALAPPDATA"]) / "Programs" / "nodejs")
+        if os.environ.get("ProgramFiles"):
+            roots.append(Path(os.environ["ProgramFiles"]) / "nodejs")
+        for root in roots:
+            candidates.extend(root / f"{name}{suffix}" for suffix in suffixes)
+    else:
+        candidates.extend(
+            [
+                home / ".local" / "bin" / name,
+                home / ".npm-global" / "bin" / name,
+                home / ".npm" / "bin" / name,
+                Path("/usr/local/bin") / name,
+                Path("/opt/homebrew/bin") / name,
+                Path("/snap/bin") / name,
+            ]
+        )
+        nvm_root = Path(os.environ.get("NVM_DIR", str(home / ".nvm"))) / "versions" / "node"
+        if nvm_root.is_dir():
+            candidates.extend(
+                sorted(nvm_root.glob(f"*/bin/{name}"), key=_node_version, reverse=True)
+            )
+    for candidate in candidates:
+        if candidate.is_file() and (os.name == "nt" or os.access(candidate, os.X_OK)):
+            return str(candidate)
+    return None
+
+
+def _node_version(path: Path) -> tuple[int, ...]:
+    values = re.findall(r"\d+", path.parent.parent.name)
+    return tuple(int(value) for value in values)

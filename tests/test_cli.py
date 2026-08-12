@@ -9,6 +9,7 @@ from agent_switcher.cli import build_parser, main
 from agent_switcher.core.usage import Usage
 from agent_switcher import __version__
 from agent_switcher.core.proxy import ProxyConfig
+from agent_switcher.core.egress_guard import EgressCheck
 
 
 def test_json_flag_works_after_command(monkeypatch, tmp_path, capsys):
@@ -74,6 +75,7 @@ def test_list_details_includes_stable_usage_json(monkeypatch, tmp_path, capsys):
         checked_at=checked,
     )
     monkeypatch.setattr(cli.CodexProvider, "fetch_usage", lambda _self, _profile: usage)
+    monkeypatch.setattr(cli, "_load_ip_guard_enabled", lambda _path: False)
 
     assert main(["list", "--details", "--json"]) == 0
 
@@ -87,6 +89,35 @@ def test_list_details_includes_stable_usage_json(monkeypatch, tmp_path, capsys):
         "weekly_reset_at": "2026-08-04T12:00:00Z",
         "weekly_used_pct": 40,
     }
+
+
+def test_cli_blocks_changed_ip_unless_user_explicitly_allows_it(monkeypatch, tmp_path, capsys):
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path))
+    (tmp_path / "auth.work.json").write_text("{}", encoding="utf-8")
+    changed = EgressCheck(
+        "work",
+        "usage_check",
+        "changed",
+        previous_fingerprint="a" * 64,
+        current_fingerprint="b" * 64,
+    )
+    monkeypatch.setattr(cli.Store, "check_egress", lambda _store, _profile, _purpose: changed)
+    approved = []
+    monkeypatch.setattr(cli.Store, "approve_egress", lambda _store, result: approved.append(result))
+    monkeypatch.setattr(
+        cli.CodexProvider,
+        "fetch_usage",
+        lambda _self, _profile: Usage.unavailable("fixture"),
+    )
+
+    assert main(["list", "--details", "--json"]) == 1
+    blocked = json.loads(capsys.readouterr().out)
+    assert blocked["ok"] is False
+    assert "IP Guard blocked" in blocked["error"]
+    assert approved == []
+
+    assert main(["list", "--details", "--allow-ip-change", "--json"]) == 0
+    assert approved == [changed]
 
 
 def test_list_without_details_does_not_fetch_or_add_usage(monkeypatch, tmp_path, capsys):

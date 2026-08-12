@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Callable, Mapping, Optional, TYPE_CHECKING
 from urllib.error import HTTPError
+from urllib.error import URLError
 from urllib.parse import urlencode
 from urllib.request import Request
 
@@ -97,6 +98,8 @@ def refresh_profile_token_if_needed(
         )
     except HTTPError as exc:
         return TokenRefreshResult(auth=auth, error=f"Token refresh failed with HTTP {exc.code}.")
+    except (TimeoutError, URLError):
+        return TokenRefreshResult(auth=auth, error="Token refresh failed after retrying the network connection.")
     except NetworkCallFailure as exc:
         return TokenRefreshResult(auth=auth, error=str(exc))
     except Exception as exc:

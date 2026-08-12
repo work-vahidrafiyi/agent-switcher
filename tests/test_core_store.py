@@ -65,3 +65,34 @@ def test_delete_active_profile_leaves_live_auth_file_untouched(tmp_path):
     assert not (tmp_path / "auth.work.json").exists()
     assert read_json(tmp_path / "auth.json") == live_auth
     assert store.active() is None
+
+
+def test_switch_forces_codex_to_read_swapped_auth_file(tmp_path):
+    store = Store(CodexProvider(home=tmp_path))
+    write_json(tmp_path / "auth.personal.json", {"tokens": {"refresh_token": "personal"}})
+    (tmp_path / "config.toml").write_text(
+        'model = "gpt-5"\ncli_auth_credentials_store = "auto"\n',
+        encoding="utf-8",
+    )
+
+    store.switch("personal")
+
+    config = (tmp_path / "config.toml").read_text(encoding="utf-8")
+    assert 'model = "gpt-5"' in config
+    assert config.count('cli_auth_credentials_store = "file"') == 1
+    assert 'cli_auth_credentials_store = "auto"' not in config
+
+
+def test_file_credential_setting_is_inserted_before_toml_tables(tmp_path):
+    provider = CodexProvider(home=tmp_path)
+    (tmp_path / "config.toml").write_text(
+        '[mcp_servers.example]\ncommand = "example"\n',
+        encoding="utf-8",
+    )
+
+    provider.prepare_file_credentials()
+
+    assert (tmp_path / "config.toml").read_text(encoding="utf-8") == (
+        'cli_auth_credentials_store = "file"\n'
+        '[mcp_servers.example]\ncommand = "example"\n'
+    )

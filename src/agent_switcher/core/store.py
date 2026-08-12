@@ -10,6 +10,7 @@ from typing import Optional
 from .identity import Identity
 from .files import atomic_write
 from .activity_log import ActivityLog
+from .egress_guard import EgressCheck, EgressGuard
 from .providers.base import Provider
 from .providers.codex import CodexProvider
 from .proxy import ProxyConfig
@@ -62,6 +63,7 @@ class Store:
         provider: Optional[Provider] = None,
         activity_log: Optional[ActivityLog] = None,
         proxy_config: Optional[ProxyConfig] = None,
+        egress_guard: Optional[EgressGuard] = None,
     ) -> None:
         self.provider = provider or CodexProvider()
         self.home = self.provider.home()
@@ -69,10 +71,24 @@ class Store:
         self.active_file = self.home / ".active"
         self.activity_log = activity_log or ActivityLog.for_provider_home(self.home)
         self.proxy_config = proxy_config or ProxyConfig()
+        self.egress_guard = egress_guard or EgressGuard(
+            self.activity_log.path.parent / "egress.json",
+            activity_log=self.activity_log,
+            enabled=False,
+        )
 
     def set_proxy_config(self, proxy_config: ProxyConfig) -> None:
         proxy_config.validate()
         self.proxy_config = proxy_config
+
+    def set_egress_guard_enabled(self, enabled: bool) -> None:
+        self.egress_guard.set_enabled(enabled)
+
+    def check_egress(self, profile: str, purpose: str) -> EgressCheck:
+        return self.egress_guard.check(profile, purpose, self.proxy_config)
+
+    def approve_egress(self, result: EgressCheck) -> None:
+        self.egress_guard.approve(result)
 
     def profile_path(self, name: str) -> Path:
         self.validate_name(name)
@@ -168,6 +184,7 @@ class Store:
         if not target.is_file():
             raise StoreError(f"{name} has no saved credentials.")
 
+        self._prepare_file_credentials()
         previous = self.sync_live()
         self._atomic_copy(target, self.auth_file)
         self.set_active(name)
@@ -185,6 +202,7 @@ class Store:
         old_path.replace(new_path)
         if self.active() == old:
             self.set_active(new)
+        self.egress_guard.rename_profile(old, new)
 
     def delete(self, name: str) -> None:
         path = self.profile_path(name)
@@ -193,12 +211,14 @@ class Store:
         path.unlink()
         if self.active() == name:
             self.set_active(None)
+        self.egress_guard.delete_profile(name)
 
     def begin_login(self, name: str) -> LoginTransaction:
         self.validate_name(name)
         if self.profile_path(name).exists():
             raise StoreError(f"{name} already exists.")
 
+        self._prepare_file_credentials()
         had_active_file, active_bytes = self._read_snapshot(self.active_file)
         had_auth_file, auth_bytes = self._read_snapshot(self.auth_file)
         previous = self.sync_live()
@@ -241,6 +261,15 @@ class Store:
     def _ensure_open(self, transaction: LoginTransaction) -> None:
         if transaction.closed:
             raise StoreError("Login transaction is already closed.")
+
+    def _prepare_file_credentials(self) -> None:
+        prepare = getattr(self.provider, "prepare_file_credentials", None)
+        if not callable(prepare):
+            return
+        try:
+            prepare()
+        except OSError as exc:
+            raise StoreError(f"Could not configure file-based credentials: {exc}") from exc
 
     def _read_snapshot(self, path: Path) -> tuple[bool, bytes]:
         try:

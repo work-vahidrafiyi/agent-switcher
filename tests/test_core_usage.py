@@ -121,7 +121,7 @@ def test_fetch_usage_returns_unavailable_for_timeout(tmp_path):
     usage = fetch_codex_usage(write_profile(tmp_path), transport=timeout, now=CHECKED_AT)
 
     assert usage.available is False
-    assert usage.unavailable_reason == "Usage is unavailable: TimeoutError."
+    assert usage.unavailable_reason == "Usage check failed after retrying the network connection."
 
 
 def test_fetch_usage_returns_unavailable_for_malformed_json(tmp_path):

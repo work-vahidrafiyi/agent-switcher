@@ -31,6 +31,12 @@ class GlobalHotkeyController(QObject):
             factory = self.listener_factory or _global_hotkeys_factory
             self.listener = factory({self.hotkey: self.activated.emit})
             self.listener.start()
+            # pynput starts registration on a worker thread. Waiting for its
+            # ready signal makes asynchronous backend failures observable here
+            # instead of reporting a hotkey as registered when it is not.
+            wait = getattr(self.listener, "wait", None)
+            if callable(wait):
+                wait()
             return True
         except Exception as exc:
             self.listener = None

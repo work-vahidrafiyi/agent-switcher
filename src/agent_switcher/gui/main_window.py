@@ -5,8 +5,8 @@ from typing import Optional
 from dataclasses import replace
 from datetime import timedelta
 
-from PySide6.QtCore import QProcess, Qt, QTimer
-from PySide6.QtGui import QPalette
+from PySide6.QtCore import QProcess, Qt, QTimer, QUrl
+from PySide6.QtGui import QDesktopServices, QPalette
 from PySide6.QtWidgets import (
     QApplication,
     QDialog,
@@ -27,6 +27,8 @@ from agent_switcher.core.store import Profile, Store, StoreError
 from agent_switcher.core.usage import Usage
 from agent_switcher.core.smart_pick import choose_smart_profile, stale_usage_profiles
 from agent_switcher.core.proxy import ProxyConfig
+from agent_switcher.core.updater import automatic_install_supported, launch_update_helper
+from agent_switcher import __version__
 
 from .add_dialog import AddAccountDialog
 from .icons import set_action_icon
@@ -35,14 +37,17 @@ from .profile_row import ProfileRow
 from .settings import DEFAULT_SETTINGS, GuiSettings, SettingsStore
 from .dialogs import AboutDialog, HistoryDialog, SettingsDialog, TransparencyDialog
 from .tray import TrayController
-from .workers import UsageRefreshWorker
+from .workers import EgressCheckWorker, UpdateCheckWorker, UpdateDownloadWorker, UsageRefreshWorker
 from .hotkey import GlobalHotkeyController
 from .quick_switch import QuickSwitchPopup
 from .window_surface import create_shadowed_surface
 from .theme import apply_theme
 from .onboarding import OnboardingDialog
+from .privacy_notice import PrivacyNoticeDialog
+from .update_dialog import UpdateAvailableDialog, UpdateProgressDialog
 from .i18n import tr
 from .message_box import ask_restart, show_message
+from .egress_prompt import confirm_egress
 
 
 class MainWindow(QMainWindow):
@@ -59,6 +64,7 @@ class MainWindow(QMainWindow):
         self.settings = settings
         self.settings_store = settings_store or SettingsStore(store.activity_log.path.parent / "settings.json")
         self.store.set_proxy_config(ProxyConfig.from_values(settings.proxy_mode, settings.proxy_url))
+        self.store.set_egress_guard_enabled(settings.ip_guard_enabled)
         self.rows: dict[str, ProfileRow] = {}
         self.usage_cache: dict[str, Usage] = {}
         self.usage_inflight: set[str] = set()
@@ -67,11 +73,18 @@ class MainWindow(QMainWindow):
         self.hotkey_controller: Optional[GlobalHotkeyController] = None
         self.quick_switch_popup: Optional[QuickSwitchPopup] = None
         self.onboarding_dialog: Optional[OnboardingDialog] = None
+        self.update_check_worker: Optional[UpdateCheckWorker] = None
+        self.update_download_worker: Optional[UpdateDownloadWorker] = None
+        self.update_progress_dialog: Optional[UpdateProgressDialog] = None
+        self.switch_egress_worker: Optional[EgressCheckWorker] = None
+        self.pending_switch: Optional[str] = None
 
         self.setWindowTitle(tr("Agent Switcher"))
         self.setWindowIcon(platform.app_icon())
-        self.resize(1000, 760)
-        self.setMinimumSize(720, 560)
+        available = QApplication.primaryScreen().availableGeometry() if QApplication.primaryScreen() else None
+        width = max(480, min(1000, available.width() - 40)) if available else 1000
+        height = max(420, min(760, available.height() - 40)) if available else 760
+        self.setFixedSize(width, height)
 
         central = QWidget()
         root, layout = create_shadowed_surface(central)
@@ -107,6 +120,14 @@ class MainWindow(QMainWindow):
         smart_button.setToolTip(tr("Switch to the account with the most usable remaining quota"))
         smart_button.clicked.connect(self.smart_pick)
         header.addWidget(smart_button)
+
+        self.update_button = QToolButton()
+        set_action_icon(self.update_button, "fa5s.cloud-download-alt")
+        self.update_button.setText(tr("Check updates"))
+        self.update_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        self.update_button.setToolTip(tr("Check GitHub for a newer Agent Switcher release"))
+        self.update_button.clicked.connect(self.check_for_updates)
+        header.addWidget(self.update_button)
 
         transparency_button = QToolButton()
         set_action_icon(transparency_button, "fa5s.network-wired")
@@ -208,7 +229,7 @@ class MainWindow(QMainWindow):
         self.usage_timer.timeout.connect(self.refresh_all_usage)
         self.usage_timer.start()
         self.configure_hotkey()
-        QTimer.singleShot(0, self.maybe_show_onboarding)
+        QTimer.singleShot(0, self.maybe_show_startup_notices)
 
     def reload(self) -> None:
         expanded = {name for name, row in self.rows.items() if row.expanded}
@@ -277,10 +298,15 @@ class MainWindow(QMainWindow):
         worker = UsageRefreshWorker(self.store, profiles, self.settings.request_delay_ms)
         self.usage_worker = worker
         worker.profile_started.connect(self.on_usage_started)
+        worker.egress_attention.connect(self.on_usage_egress_attention)
         worker.usage_ready.connect(self.on_usage_ready)
         worker.finished.connect(self.on_usage_refresh_finished)
         worker.finished.connect(worker.deleteLater)
         worker.start()
+
+    def on_usage_egress_attention(self, result: object) -> None:
+        if self.usage_worker is not None:
+            self.usage_worker.resolve_egress(confirm_egress(self.store, result, self))
 
     def on_usage_started(self, name: str) -> None:
         self.usage_inflight.add(name)
@@ -324,22 +350,51 @@ class MainWindow(QMainWindow):
         self.tray.update_tooltip(active, self.usage_cache.get(active) if active else None)
 
     def switch_profile(self, name: str) -> None:
+        if self.switch_egress_worker is not None:
+            self.notify(tr("A network safety check is already in progress."))
+            return
         running = self.store.running_processes()
         if running:
-            details = "\n".join(running)
             answer = show_message(
                 self,
                 QMessageBox.Icon.Warning,
                 tr("Codex is still running"),
                 tr(
-                    "Codex appears to be running and may write auth.json while switching.\n\n{details}\n\nQuit Codex first, or continue anyway?",
-                    details=details,
+                    "Codex or its VS Code extension is still open. It may restore the previous login after the switch.\n\n"
+                    "For a reliable switch, close Codex and VS Code first. You can also continue if you understand the risk."
                 ),
                 QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel,
                 QMessageBox.StandardButton.Cancel,
+                {
+                    QMessageBox.StandardButton.Ok: "Switch anyway",
+                    QMessageBox.StandardButton.Cancel: "Cancel",
+                },
             )
             if answer != QMessageBox.StandardButton.Ok:
                 return
+
+        self.pending_switch = name
+        worker = EgressCheckWorker(self.store, name, "account_switch")
+        self.switch_egress_worker = worker
+        worker.checked.connect(self.on_switch_egress_checked)
+        worker.finished.connect(self.on_switch_egress_finished)
+        worker.finished.connect(worker.deleteLater)
+        worker.start()
+
+    def on_switch_egress_checked(self, result: object) -> None:
+        name = self.pending_switch
+        if name is None or result.profile != name:
+            return
+        if not confirm_egress(self.store, result, self):
+            self.pending_switch = None
+            return
+        self._complete_switch(name)
+        self.pending_switch = None
+
+    def on_switch_egress_finished(self) -> None:
+        self.switch_egress_worker = None
+
+    def _complete_switch(self, name: str) -> None:
 
         try:
             previous = self.store.switch(name)
@@ -411,6 +466,80 @@ class MainWindow(QMainWindow):
     def show_about(self) -> None:
         AboutDialog(self).exec()
 
+    def check_for_updates(self) -> None:
+        if self.update_check_worker is not None or self.update_download_worker is not None:
+            return
+        self.update_button.setEnabled(False)
+        self.update_button.setText(tr("Checking..."))
+        self.notify(tr("Checking for Agent Switcher updates..."))
+        worker = UpdateCheckWorker(self.store)
+        self.update_check_worker = worker
+        worker.checked.connect(self.on_update_checked)
+        worker.failed.connect(self.on_update_check_failed)
+        worker.finished.connect(self.on_update_check_finished)
+        worker.finished.connect(worker.deleteLater)
+        worker.start()
+
+    def on_update_checked(self, info: object) -> None:
+        if info is None:
+            self.notify(tr("Agent Switcher {version} is up to date.", version=__version__))
+            return
+        dialog = UpdateAvailableDialog(info, automatic_install_supported(), self)
+        dialog.exec()
+        if dialog.action == "install":
+            self.start_update_download(info)
+        elif dialog.action == "open_release" and info.release_url:
+            QDesktopServices.openUrl(QUrl(info.release_url))
+
+    def on_update_check_failed(self, error: str) -> None:
+        show_message(
+            self,
+            QMessageBox.Icon.Warning,
+            tr("Update check failed"),
+            tr("Agent Switcher could not check for updates.\n\n{error}", error=error),
+        )
+
+    def on_update_check_finished(self) -> None:
+        self.update_check_worker = None
+        self.update_button.setEnabled(True)
+        self.update_button.setText(tr("Check updates"))
+
+    def start_update_download(self, info: object) -> None:
+        if self.update_download_worker is not None:
+            return
+        progress = UpdateProgressDialog(info.latest_version, self)
+        self.update_progress_dialog = progress
+        progress.show()
+        worker = UpdateDownloadWorker(self.store, info)
+        self.update_download_worker = worker
+        worker.progress_changed.connect(progress.set_progress)
+        worker.prepared.connect(self.on_update_prepared)
+        worker.failed.connect(self.on_update_download_failed)
+        worker.finished.connect(worker.deleteLater)
+        worker.start()
+
+    def on_update_prepared(self, prepared: object) -> None:
+        if self.update_progress_dialog is not None:
+            self.update_progress_dialog.set_installing()
+        try:
+            launch_update_helper(prepared)
+        except Exception as exc:
+            self.on_update_download_failed(str(exc) or type(exc).__name__)
+            return
+        QTimer.singleShot(0, self.quit_app)
+
+    def on_update_download_failed(self, error: str) -> None:
+        if self.update_progress_dialog is not None:
+            self.update_progress_dialog.close()
+            self.update_progress_dialog = None
+        self.update_download_worker = None
+        show_message(
+            self,
+            QMessageBox.Icon.Critical,
+            tr("Update installation failed"),
+            tr("The update was not installed. Your current version is unchanged.\n\n{error}", error=error),
+        )
+
     def show_settings(self) -> None:
         dialog = SettingsDialog(
             self.settings.offline_mode,
@@ -423,6 +552,7 @@ class MainWindow(QMainWindow):
             self.settings.language,
             self.settings.proxy_mode,
             self.settings.proxy_url,
+            self.settings.ip_guard_enabled,
             self,
         )
         if dialog.exec() != QDialog.DialogCode.Accepted:
@@ -433,6 +563,7 @@ class MainWindow(QMainWindow):
         self.settings = replace(
             self.settings,
             offline_mode=dialog.offline_checkbox.isChecked(),
+            ip_guard_enabled=dialog.ip_guard_checkbox.isChecked(),
             low_quota_threshold_pct=dialog.low_quota_threshold.value(),
             smart_pick_stale_minutes=dialog.smart_pick_stale.value(),
             smart_pick_headroom_pct=dialog.smart_pick_headroom.value(),
@@ -444,6 +575,7 @@ class MainWindow(QMainWindow):
             proxy_url=proxy_config.url,
         )
         self.store.set_proxy_config(proxy_config)
+        self.store.set_egress_guard_enabled(self.settings.ip_guard_enabled)
         self.settings_store.save(self.settings)
         apply_theme(QApplication.instance(), self.settings.theme)
         self.configure_hotkey()
@@ -552,12 +684,15 @@ class MainWindow(QMainWindow):
             parent=self,
         )
         self.hotkey_controller = controller
-        controller.start()
+        if not controller.start():
+            self.notify(
+                tr("The global hotkey could not be registered. Check the shortcut or desktop permissions.")
+            )
 
     def show_quick_switch(self) -> None:
         if self.quick_switch_popup is not None:
             self.quick_switch_popup.close()
-        popup = QuickSwitchPopup(self.store, self.tray.tray, self.switch_profile, self)
+        popup = QuickSwitchPopup(self.store, self.tray.tray, self.switch_profile)
         self.quick_switch_popup = popup
         popup.finished.connect(lambda _result: setattr(self, "quick_switch_popup", None))
         popup.show()
@@ -590,6 +725,15 @@ class MainWindow(QMainWindow):
 
         self.show_onboarding()
 
+    def maybe_show_startup_notices(self) -> None:
+        if not self.settings.privacy_notice_suppressed:
+            dialog = PrivacyNoticeDialog(self)
+            accepted = dialog.exec() == QDialog.DialogCode.Accepted
+            if accepted and dialog.dont_show_again.isChecked():
+                self.settings = replace(self.settings, privacy_notice_suppressed=True)
+                self.settings_store.save(self.settings)
+        QTimer.singleShot(0, self.maybe_show_onboarding)
+
     def show_onboarding(self) -> None:
         if self.onboarding_dialog is not None:
             self.onboarding_dialog.show()
@@ -611,6 +755,9 @@ class MainWindow(QMainWindow):
         if self.usage_worker is not None and self.usage_worker.isRunning():
             self.usage_worker.requestInterruption()
             self.usage_worker.wait(6000)
+        if self.switch_egress_worker is not None and self.switch_egress_worker.isRunning():
+            self.switch_egress_worker.requestInterruption()
+            self.switch_egress_worker.wait(9000)
         self.tray.tray.hide()
         QApplication.quit()
 

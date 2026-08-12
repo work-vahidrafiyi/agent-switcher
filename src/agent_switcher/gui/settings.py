@@ -13,6 +13,7 @@ class GuiSettings:
     auto_refresh_interval_ms: int = 15 * 60 * 1000
     request_delay_ms: int = 400
     offline_mode: bool = False
+    ip_guard_enabled: bool = True
     low_quota_threshold_pct: int = 15
     smart_pick_stale_minutes: int = 10
     smart_pick_headroom_pct: int = 20
@@ -20,6 +21,7 @@ class GuiSettings:
     global_hotkey: str = "<ctrl>+<alt>+<space>"
     theme: str = "system"
     onboarding_seen: bool = False
+    privacy_notice_suppressed: bool = False
     language: str = "en"
     proxy_mode: str = "none"
     proxy_url: str = ""
@@ -47,6 +49,7 @@ class SettingsStore:
             auto_refresh_interval_ms=_positive_int(data.get("auto_refresh_interval_ms"), DEFAULT_SETTINGS.auto_refresh_interval_ms),
             request_delay_ms=_positive_int(data.get("request_delay_ms"), DEFAULT_SETTINGS.request_delay_ms),
             offline_mode=data.get("offline_mode") is True,
+            ip_guard_enabled=data.get("ip_guard_enabled") is not False,
             low_quota_threshold_pct=_percentage_int(
                 data.get("low_quota_threshold_pct"), DEFAULT_SETTINGS.low_quota_threshold_pct
             ),
@@ -60,6 +63,7 @@ class SettingsStore:
             global_hotkey=_nonempty_string(data.get("global_hotkey"), DEFAULT_SETTINGS.global_hotkey),
             theme=_theme(data.get("theme")),
             onboarding_seen=data.get("onboarding_seen") is True,
+            privacy_notice_suppressed=data.get("privacy_notice_suppressed") is True,
             language=_language(data.get("language")),
             proxy_mode=proxy_config.mode,
             proxy_url=proxy_config.url,

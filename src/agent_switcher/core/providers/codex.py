@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 from pathlib import Path
 from typing import Optional, TYPE_CHECKING
@@ -9,6 +10,7 @@ from ..identity import Identity, parse_auth_identity
 from ..usage import Usage, fetch_codex_usage
 from ..activity_log import ActivityLog
 from ..proxy import ProxyConfig
+from ..files import atomic_write
 from .base import LoginMode
 
 if TYPE_CHECKING:
@@ -34,6 +36,35 @@ class CodexProvider:
         if mode == "device":
             command.append("--device-auth")
         return command
+
+    def prepare_file_credentials(self) -> None:
+        """Make auth.json the credential source used by Codex on every OS.
+
+        Codex can default to an OS keyring (notably on Windows). Agent Switcher
+        swaps auth.json files, so leaving the default at ``auto`` makes a switch
+        look successful to this app while a new Codex process reads stale
+        credentials from the keyring instead.
+        """
+        config_path = self.home() / "config.toml"
+        try:
+            current = config_path.read_text(encoding="utf-8")
+        except FileNotFoundError:
+            current = ""
+        pattern = re.compile(r"(?m)^[ \t]*cli_auth_credentials_store[ \t]*=.*$")
+        setting = 'cli_auth_credentials_store = "file"'
+        if pattern.search(current):
+            updated = pattern.sub(setting, current, count=1)
+        else:
+            table = re.search(r"(?m)^[ \t]*\[[^\n]+\]", current)
+            if table is None:
+                separator = "" if not current or current.endswith("\n") else "\n"
+                updated = f"{current}{separator}{setting}\n"
+            else:
+                prefix = current[: table.start()]
+                separator = "" if not prefix or prefix.endswith("\n") else "\n"
+                updated = f"{prefix}{separator}{setting}\n{current[table.start():]}"
+        if updated != current:
+            atomic_write(config_path, updated.encode("utf-8"))
 
     def parse_identity(self, path: Path) -> Identity:
         return parse_auth_identity(path)

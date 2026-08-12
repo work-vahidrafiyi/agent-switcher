@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from pathlib import Path
 from typing import Any, Optional
 
 from . import __version__
@@ -26,11 +27,18 @@ def build_parser() -> argparse.ArgumentParser:
 
     list_parser = subparsers.add_parser("list", parents=[json_parent], help="list saved profiles")
     list_parser.add_argument("--details", action="store_true", help="fetch usage details for each profile")
+    list_parser.add_argument(
+        "--allow-ip-change",
+        action="store_true",
+        help="continue once and trust a changed public IP",
+    )
     switch = subparsers.add_parser("switch", parents=[json_parent], help="make a saved profile active")
     switch.add_argument("name")
+    switch.add_argument("--allow-ip-change", action="store_true", help="continue once and trust a changed public IP")
 
     add = subparsers.add_parser("add", parents=[json_parent], help="run device auth and save a new profile")
     add.add_argument("name")
+    add.add_argument("--allow-ip-change", action="store_true", help="continue once and trust a changed public IP")
 
     subparsers.add_parser("current", parents=[json_parent], help="show the active profile")
 
@@ -48,7 +56,9 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: Optional[list[str]] = None) -> int:
     args = build_parser().parse_args(argv)
     store = Store(CodexProvider())
-    store.set_proxy_config(load_proxy_config(store.activity_log.path.parent / "settings.json"))
+    settings_path = store.activity_log.path.parent / "settings.json"
+    store.set_proxy_config(load_proxy_config(settings_path))
+    store.set_egress_guard_enabled(_load_ip_guard_enabled(settings_path))
 
     try:
         if args.command == "list":
@@ -56,6 +66,7 @@ def main(argv: Optional[list[str]] = None) -> int:
             for profile in store.profile_list():
                 item = profile.as_dict()
                 if args.details:
+                    _check_egress_cli(store, profile.name, "usage_check", args.allow_ip_change)
                     item["usage"] = store.fetch_usage(profile).as_dict()
                 profiles.append(item)
             return _success(args, {"profiles": profiles, "active": store.active()}, _print_list, profiles, store.active())
@@ -66,6 +77,7 @@ def main(argv: Optional[list[str]] = None) -> int:
             return _success(args, payload, _print_current, profile)
 
         if args.command == "switch":
+            _check_egress_cli(store, args.name, "account_switch", args.allow_ip_change)
             running = store.running_processes()
             if running:
                 print("Warning: a codex process appears to be running; it may write auth.json while switching.", file=sys.stderr)
@@ -77,6 +89,7 @@ def main(argv: Optional[list[str]] = None) -> int:
             return _success(args, payload, lambda: print(f"Switched {previous or 'none'} to {args.name}."))
 
         if args.command == "add":
+            _check_egress_cli(store, args.name, "login", args.allow_ip_change)
             manager = DeviceLoginManager(store)
             profile, result = manager.add_profile(
                 args.name,
@@ -106,6 +119,39 @@ def main(argv: Optional[list[str]] = None) -> int:
         return _error(args, EXIT_PROVIDER, "Cancelled")
 
     return _error(args, EXIT_USER, "Unknown command.")
+
+
+def _check_egress_cli(store: Store, profile: str, purpose: str, allow_change: bool) -> None:
+    result = store.check_egress(profile, purpose)
+    if result.allowed:
+        return
+    if allow_change:
+        if result.status == "changed":
+            store.approve_egress(result)
+        print(
+            f"IP Guard warning: continuing {purpose} once for {profile} ({result.status}).",
+            file=sys.stderr,
+        )
+        return
+    if result.status == "changed":
+        detail = (
+            f"public IP fingerprint changed from {result.previous_fingerprint[:12]} "
+            f"to {result.current_fingerprint[:12]}"
+        )
+    else:
+        detail = f"public IP could not be verified: {result.error}"
+    raise StoreError(
+        f"IP Guard blocked {purpose} for {profile}: {detail}. "
+        "Review the network or rerun with --allow-ip-change."
+    )
+
+
+def _load_ip_guard_enabled(path: Path) -> bool:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, TypeError, ValueError):
+        return True
+    return not isinstance(payload, dict) or payload.get("ip_guard_enabled") is not False
 
 
 def _success(args: argparse.Namespace, payload: dict[str, Any], printer, *printer_args) -> int:

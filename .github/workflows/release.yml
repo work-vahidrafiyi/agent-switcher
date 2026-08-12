@@ -30,22 +30,45 @@ jobs:
       - name: Install build dependencies
         run: python -m pip install . pyinstaller
 
+      - name: Install UPX on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: choco install upx --yes --no-progress
+
       - name: Build standalone GUI
-        run: >-
-          pyinstaller
-          --noconfirm
-          --clean
-          --onefile
-          --windowed
-          --name agent-switcher
-          --paths src
-          --collect-all qtawesome
-          --collect-all qdarktheme
-          --collect-all pynput
-          --collect-data agent_switcher
-          --copy-metadata agent-switcher
-          --hidden-import PySide6.QtSvg
-          packaging/pyinstaller_entry.py
+        run: pyinstaller --noconfirm --clean packaging/agent-switcher.spec
+
+      - name: Enforce Linux binary size budget
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          actual_bytes=$(stat -c '%s' dist/agent-switcher)
+          maximum_bytes=$((41 * 1024 * 1024))
+          echo "Linux binary: $actual_bytes bytes (budget: $maximum_bytes bytes)"
+          test "$actual_bytes" -le "$maximum_bytes"
+
+      - name: Smoke-test Linux binary
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set +e
+          QT_QPA_PLATFORM=offscreen CODEX_HOME="$RUNNER_TEMP/codex" \
+            timeout 8s dist/agent-switcher
+          result=$?
+          set -e
+          test "$result" -eq 124
+
+      - name: Smoke-test Windows binary
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $env:CODEX_HOME = Join-Path $env:RUNNER_TEMP "codex"
+          $process = Start-Process -FilePath "dist/agent-switcher.exe" -PassThru
+          Start-Sleep -Seconds 8
+          if ($process.HasExited) {
+            throw "The standalone app exited during its smoke test."
+          }
+          Stop-Process -Id $process.Id -Force
 
       - name: Package Linux binary
         if: runner.os == 'Linux'

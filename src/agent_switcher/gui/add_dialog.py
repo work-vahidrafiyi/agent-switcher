@@ -27,6 +27,7 @@ from .icons import set_action_icon
 from .window_surface import create_shadowed_surface
 from .i18n import tr
 from .help import add_context_help
+from .egress_prompt import confirm_egress
 
 
 class AddAccountDialog(QDialog):
@@ -184,10 +185,15 @@ class AddAccountDialog(QDialog):
         self.worker.url_ready.connect(self.on_url)
         self.worker.code_ready.connect(self.on_code)
         self.worker.line_ready.connect(self.on_line)
+        self.worker.egress_attention.connect(self.on_egress_attention)
         self.worker.succeeded.connect(self.on_success)
         self.worker.failed.connect(self.on_failure)
         self.worker.finished.connect(self.worker.deleteLater)
         self.worker.start()
+
+    def on_egress_attention(self, result: object) -> None:
+        if self.worker is not None:
+            self.worker.resolve_egress(confirm_egress(self.store, result, self))
 
     def on_url(self, url: str) -> None:
         self.url_edit.setText(url)

@@ -49,7 +49,7 @@ def test_smart_pick_requires_both_windows_and_fresh_data(tmp_path):
 
     assert stale_usage_profiles(
         log, ["weekly-only", "stale", "missing"], max_age=timedelta(minutes=10), now=NOW
-    ) == ["stale", "missing"]
+    ) == ["weekly-only", "stale", "missing"]
     result = choose_smart_profile(
         log,
         ["weekly-only", "stale"],
@@ -59,3 +59,12 @@ def test_smart_pick_requires_both_windows_and_fresh_data(tmp_path):
         now=NOW,
     )
     assert result.profile_name is None
+
+
+def test_smart_pick_refreshes_recent_but_incomplete_usage_samples(tmp_path):
+    log = ActivityLog(tmp_path / "activity.jsonl")
+    add_usage(log, "incomplete", 10, None, NOW)
+
+    assert stale_usage_profiles(
+        log, ["incomplete"], max_age=timedelta(minutes=10), now=NOW
+    ) == ["incomplete"]

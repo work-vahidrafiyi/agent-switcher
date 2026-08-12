@@ -110,6 +110,20 @@ def test_device_login_parser_handles_plain_code_on_same_line():
     assert codes == ["WXYZ9876"]
 
 
+def test_device_login_parser_upgrades_generic_auth_url_to_device_link():
+    parser = DeviceLoginOutputParser()
+    urls = []
+
+    parser.feed(
+        "Authorization service: https://auth.openai.com/oauth/authorize\n"
+        "Open https://auth.openai.com/codex/device&amp;source=cli.\n",
+        on_url=urls.append,
+    )
+
+    assert parser.url == "https://auth.openai.com/codex/device&source=cli"
+    assert urls[-1] == parser.url
+
+
 def test_browser_login_parser_captures_url_but_ignores_code():
     parser = DeviceLoginOutputParser(mode="browser")
     urls = []
@@ -147,6 +161,7 @@ def test_login_subprocess_uses_configured_proxy_and_removes_bypass_list(tmp_path
 
     assert environment["HTTP_PROXY"] == "http://proxy.test:8080"
     assert environment["HTTPS_PROXY"] == "http://proxy.test:8080"
+    assert environment["ALL_PROXY"] == "http://proxy.test:8080"
     assert environment["NO_COLOR"] == "1"
     assert environment["KEEP_ME"] == "yes"
     assert "NO_PROXY" not in environment

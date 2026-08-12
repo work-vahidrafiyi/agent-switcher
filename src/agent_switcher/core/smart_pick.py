@@ -25,7 +25,12 @@ def stale_usage_profiles(
     stale = []
     for name in profile_names:
         sample = _latest_sample(activity_log, name)
-        if sample is None or current - sample[0] > max_age:
+        if (
+            sample is None
+            or current - sample[0] > max_age
+            or sample[1] is None
+            or sample[2] is None
+        ):
             stale.append(name)
     return stale
 

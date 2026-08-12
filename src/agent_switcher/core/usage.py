@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Mapping, Optional, TYPE_CHECKING
 from urllib.error import HTTPError
+from urllib.error import URLError
 from urllib.request import Request
 
 from .token_refresh import refresh_profile_token_if_needed
@@ -140,6 +141,8 @@ def fetch_usage(
         )
     except HTTPError as exc:
         return Usage.unavailable(f"Usage service returned HTTP {exc.code}.", checked_at)
+    except (TimeoutError, URLError):
+        return Usage.unavailable("Usage check failed after retrying the network connection.", checked_at)
     except NetworkCallFailure as exc:
         return Usage.unavailable(str(exc), checked_at)
     except Exception as exc:

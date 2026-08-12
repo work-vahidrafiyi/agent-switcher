@@ -12,6 +12,7 @@ htmlcov/
 build/
 dist/
 *.spec
+!packaging/agent-switcher.spec
 
 # Local environment files
 .env
@@ -41,3 +42,6 @@ dist/
 .idea/
 .vscode/
 *.log
+
+
+TODO.md
