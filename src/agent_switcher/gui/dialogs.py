@@ -224,7 +224,8 @@ class SettingsDialog(QDialog):
         ip_guard_note = QLabel(
             tr(
                 "IP Guard checks the public route before sign-in, usage checks, and account switching. "
-                "Only a local fingerprint is saved; the raw IP is not stored."
+                "Only a local fingerprint is saved; the raw IP is not stored. If the IP service is "
+                "unavailable, the requested operation continues without this check."
             )
         )
         ip_guard_note.setWordWrap(True)

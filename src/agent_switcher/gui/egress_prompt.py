@@ -18,10 +18,12 @@ def confirm_egress(store: Store, result: EgressCheck, parent: Optional[QWidget])
     if result.status == "changed":
         title = tr("Public IP changed")
         message = tr(
-            "IP Guard stopped {purpose} for {profile} before any OpenAI request was sent.\n\n"
+            "Your public IP changed before {purpose} for {profile}.\n\n"
+            "If a request from this new IP reaches OpenAI, OpenAI may block your account.\n\n"
             "Previous fingerprint: {previous}\n"
             "Current fingerprint: {current}\n\n"
-            "Continue only if you expected this network or proxy change.",
+            "Continue only if you recognize this network or proxy. "
+            "After you continue, this warning will not be shown again for this IP change.",
             purpose=tr(result.purpose),
             profile=result.profile,
             previous=result.previous_fingerprint[:12],
@@ -46,7 +48,7 @@ def confirm_egress(store: Store, result: EgressCheck, parent: Optional[QWidget])
         QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel,
         QMessageBox.StandardButton.Cancel,
         {
-            QMessageBox.StandardButton.Ok: "Continue once",
+            QMessageBox.StandardButton.Ok: "Continue and remember",
             QMessageBox.StandardButton.Cancel: "Cancel",
         },
     )

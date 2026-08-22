@@ -37,11 +37,13 @@ class EgressCheck:
 
     @property
     def allowed(self) -> bool:
-        return self.status in {"disabled", "first", "same"}
+        # The public-IP service is an advisory safety check. If it is blocked or
+        # unavailable, it must not prevent the requested OpenAI operation.
+        return self.status in {"disabled", "first", "same", "unavailable"}
 
     @property
     def needs_confirmation(self) -> bool:
-        return self.status in {"changed", "unavailable"}
+        return self.status == "changed"
 
 
 class EgressGuard:
@@ -61,6 +63,7 @@ class EgressGuard:
         self.enabled = enabled
         self._lock = threading.RLock()
         self._state = self._load_state()
+        self._unavailable_routes: dict[str, str] = {}
 
     def set_enabled(self, enabled: bool) -> None:
         self.enabled = bool(enabled)
@@ -72,15 +75,30 @@ class EgressGuard:
         route_fingerprint = self._fingerprint(
             f"route\0{proxy_config.mode}\0{proxy_config.url}".encode("utf-8")
         )
+        with self._lock:
+            unavailable_error = self._unavailable_routes.get(route_fingerprint)
+        if unavailable_error:
+            return EgressCheck(
+                profile,
+                purpose,
+                "unavailable",
+                route_fingerprint=route_fingerprint[:12],
+                error=unavailable_error,
+            )
         try:
             public_ip = str(ipaddress.ip_address(self.resolver(proxy_config).strip()))
         except Exception as exc:
+            error = str(exc) or type(exc).__name__
+            with self._lock:
+                # Avoid repeating the same blocked lookup for every account in
+                # this app session. A different proxy route is still attempted.
+                self._unavailable_routes[route_fingerprint] = error
             result = EgressCheck(
                 profile,
                 purpose,
                 "unavailable",
                 route_fingerprint=route_fingerprint[:12],
-                error=str(exc) or type(exc).__name__,
+                error=error,
             )
             self._log(result)
             return result
@@ -124,12 +142,20 @@ class EgressGuard:
             if not isinstance(profiles, dict):
                 profiles = {}
                 self._state["profiles"] = profiles
-            profiles[result.profile] = {
-                "fingerprint": result.current_fingerprint,
-                "family": result.address_family,
-                "route_fingerprint": result.route_fingerprint,
-                "checked_at": _timestamp(),
-            }
+            # Public egress is shared by the app, not by one account. Trust the
+            # acknowledged route for every known profile so a multi-account
+            # usage refresh shows one warning for the IP change instead of one
+            # warning per profile.
+            known_profiles = set(profiles)
+            known_profiles.add(result.profile)
+            checked_at = _timestamp()
+            for profile in known_profiles:
+                profiles[profile] = {
+                    "fingerprint": result.current_fingerprint,
+                    "family": result.address_family,
+                    "route_fingerprint": result.route_fingerprint,
+                    "checked_at": checked_at,
+                }
             self._save_state()
         if self.activity_log is not None:
             self.activity_log.append(

@@ -5,6 +5,13 @@ This file lists the changes users will notice in each Agent Switcher release.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.1] - 2026-08-22
+
+### Fixed
+
+- Let sign-in, usage checks, and account switching continue when the public-IP service is unavailable.
+- Show one warning per accepted IP change instead of repeating it for every account check.
+
 ## [1.5.0] - 2026-08-12
 
 ### Added

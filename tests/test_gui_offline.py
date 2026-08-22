@@ -8,6 +8,7 @@ from PySide6.QtTest import QTest
 from agent_switcher.core.activity_log import ActivityLog
 from agent_switcher.core.providers.codex import CodexProvider
 from agent_switcher.core.store import Store
+from agent_switcher.core.usage import Usage
 from agent_switcher.core.updater import ReleaseAsset, UpdateInfo
 from agent_switcher.core.egress_guard import EgressCheck
 from agent_switcher.gui.dialogs import AboutDialog, HistoryDialog, SettingsDialog, TransparencyDialog
@@ -21,6 +22,8 @@ from agent_switcher.gui.privacy_notice import PrivacyNoticeDialog
 from agent_switcher.gui.update_dialog import UpdateAvailableDialog, UpdateProgressDialog
 from agent_switcher.gui.theme import apply_theme
 from agent_switcher.gui.workers import UsageRefreshWorker
+from agent_switcher.gui.egress_prompt import confirm_egress
+from agent_switcher.gui.i18n import set_language
 
 
 def application():
@@ -267,6 +270,64 @@ def test_usage_worker_blocks_changed_ip_before_provider_request(tmp_path):
     assert results[0][0] == "work"
     assert results[0][1].available is False
     assert "IP" in results[0][1].unavailable_reason
+
+
+def test_usage_worker_continues_when_public_ip_service_is_unavailable(tmp_path):
+    calls = []
+
+    class CountingProvider(CodexProvider):
+        def fetch_usage(self, profile, activity_log=None, proxy_config=None):
+            calls.append(profile.name)
+            return Usage.unavailable("fixture")
+
+    provider = CountingProvider(home=tmp_path / ".codex")
+    provider.home().mkdir(parents=True)
+    (provider.home() / "auth.work.json").write_text("{}", encoding="utf-8")
+    store = Store(provider, activity_log=ActivityLog(tmp_path / "state" / "activity.jsonl"))
+    store.check_egress = lambda profile, purpose: EgressCheck(
+        profile,
+        purpose,
+        "unavailable",
+        error="public IP service is blocked",
+    )
+    worker = UsageRefreshWorker(store, [store.profile("work")], 0)
+    attention = []
+    worker.egress_attention.connect(attention.append)
+
+    worker.run()
+
+    assert calls == ["work"]
+    assert attention == []
+
+
+def test_changed_ip_warning_explains_openai_block_risk_and_is_remembered(monkeypatch):
+    set_language("en")
+    changed = EgressCheck(
+        "work",
+        "usage_check",
+        "changed",
+        previous_fingerprint="a" * 64,
+        current_fingerprint="b" * 64,
+    )
+    captured = {}
+
+    def capture_message(_parent, _icon, title, text, _buttons, _default, labels):
+        captured.update(title=title, text=text, labels=labels)
+        return QMessageBox.StandardButton.Ok
+
+    approved = []
+
+    class GuardStore:
+        def approve_egress(self, result):
+            approved.append(result)
+
+    monkeypatch.setattr("agent_switcher.gui.egress_prompt.show_message", capture_message)
+
+    assert confirm_egress(GuardStore(), changed, None) is True
+    assert "OpenAI may block your account" in captured["text"]
+    assert "will not be shown again" in captured["text"]
+    assert captured["labels"][QMessageBox.StandardButton.Ok] == "Continue and remember"
+    assert approved == [changed]
 
 
 def test_switch_warning_hides_process_ids_and_paths(tmp_path, monkeypatch):

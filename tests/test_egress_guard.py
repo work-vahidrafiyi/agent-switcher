@@ -39,12 +39,14 @@ def test_first_egress_is_trusted_and_only_fingerprint_is_persisted(tmp_path):
     assert "203.0.113.10" not in (tmp_path / "activity.jsonl").read_text(encoding="utf-8")
 
 
-def test_same_ip_is_allowed_and_changed_ip_requires_approval(tmp_path):
-    addresses = iter(["198.51.100.1", "198.51.100.1", "198.51.100.2", "198.51.100.2"])
-    guard = EgressGuard(tmp_path / "egress.json", resolver=lambda _proxy: next(addresses))
+def test_same_ip_is_allowed_and_changed_ip_requires_only_one_approval(tmp_path):
+    address = ["198.51.100.1"]
+    guard = EgressGuard(tmp_path / "egress.json", resolver=lambda _proxy: address[0])
 
     first = guard.check("work", "login", ProxyConfig())
     same = guard.check("work", "usage_check", ProxyConfig())
+    guard.check("personal", "usage_check", ProxyConfig())
+    address[0] = "198.51.100.2"
     changed = guard.check("work", "account_switch", ProxyConfig())
 
     assert first.status == "first"
@@ -56,12 +58,16 @@ def test_same_ip_is_allowed_and_changed_ip_requires_approval(tmp_path):
     guard.approve(changed)
 
     assert guard.check("work", "usage_check", ProxyConfig()).status == "same"
+    reloaded = EgressGuard(tmp_path / "egress.json", resolver=lambda _proxy: address[0])
+    assert reloaded.check("personal", "usage_check", ProxyConfig()).status == "same"
 
 
-def test_failed_public_ip_check_is_fail_safe_without_overwriting_baseline(tmp_path):
+def test_failed_public_ip_check_is_skipped_without_overwriting_baseline(tmp_path):
     address = ["192.0.2.10"]
+    resolver_calls = []
 
     def resolver(_proxy):
+        resolver_calls.append(_proxy)
         value = address[0]
         if isinstance(value, Exception):
             raise value
@@ -75,9 +81,37 @@ def test_failed_public_ip_check_is_fail_safe_without_overwriting_baseline(tmp_pa
     result = guard.check("personal", "usage_check", ProxyConfig())
 
     assert result.status == "unavailable"
-    assert result.needs_confirmation is True
+    assert result.allowed is True
+    assert result.needs_confirmation is False
     assert "timed out" in result.error
     assert (tmp_path / "egress.json").read_bytes() == before
+
+    repeated = guard.check("work", "account_switch", ProxyConfig())
+
+    assert repeated.status == "unavailable"
+    assert repeated.allowed is True
+    assert len(resolver_calls) == 2
+
+
+def test_failed_public_ip_route_is_retried_after_proxy_changes(tmp_path):
+    calls = []
+
+    def resolver(proxy):
+        calls.append(proxy)
+        if proxy.mode == "none":
+            raise TimeoutError("direct route is blocked")
+        return "203.0.113.30"
+
+    guard = EgressGuard(tmp_path / "egress.json", resolver=resolver)
+
+    assert guard.check("work", "usage_check", ProxyConfig()).status == "unavailable"
+    assert guard.check("personal", "usage_check", ProxyConfig()).status == "unavailable"
+    assert guard.check(
+        "work",
+        "usage_check",
+        ProxyConfig(mode="custom", url="http://proxy.test:8080"),
+    ).status == "first"
+    assert len(calls) == 2
 
 
 def test_guard_tracks_profile_rename_and_delete(tmp_path):
