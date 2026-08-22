@@ -79,10 +79,10 @@ Agent Switcher takes care of this automatically. Before changing accounts or sta
 - ✅ API-key accounts are skipped during quota checks
 - ✅ IP Guard checks the public route before sign-in, usage checks, and account switching
 - ✅ Per-account IP fingerprints stay local; raw public IP addresses are never saved
-- ✅ A changed IP warns once before an OpenAI request; accepting it prevents repeated warnings for the same change
+- ✅ A new IP warns once before an OpenAI request; previously seen IP fingerprints remain trusted across rotating proxy routes
 - ✅ If the public-IP service is blocked or unavailable, the requested operation continues without the IP check
 
-IP Guard uses a small public-IP lookup through the same direct or proxy route as Agent Switcher's OpenAI requests. A keyed fingerprint is stored separately for each account, and accepting a changed IP updates all known account fingerprints so the warning appears only once. The updater's GitHub traffic is not treated as account activity. Browser sign-in itself runs in your browser, so its route can differ from the Codex CLI route and cannot be enforced by Agent Switcher.
+IP Guard uses a small public-IP lookup through the same direct or proxy route as Agent Switcher's OpenAI requests. Keyed fingerprints are stored locally without raw IP addresses, and previously acknowledged fingerprints remain trusted so rotating proxies do not repeat the same warning. The updater's GitHub traffic is not treated as account activity. Browser sign-in itself runs in your browser, so its route can differ from the Codex CLI route and cannot be enforced by Agent Switcher.
 
 ### 🎨 Personalization and accessibility
 

@@ -113,10 +113,15 @@ class EgressGuard:
                 if isinstance(previous_record, Mapping)
                 else ""
             )
+            trusted = self._state.setdefault("trusted_fingerprints", [])
+            is_trusted = isinstance(trusted, list) and any(
+                isinstance(fingerprint, str) and hmac.compare_digest(fingerprint, current)
+                for fingerprint in trusted
+            )
             if not previous:
                 status: EgressStatus = "first"
                 self._store_observation(profile, current, family, route_fingerprint)
-            elif hmac.compare_digest(previous, current):
+            elif hmac.compare_digest(previous, current) or is_trusted:
                 status = "same"
                 self._store_observation(profile, current, family, route_fingerprint)
             else:
@@ -146,6 +151,7 @@ class EgressGuard:
             # acknowledged route for every known profile so a multi-account
             # usage refresh shows one warning for the IP change instead of one
             # warning per profile.
+            self._remember_fingerprint(result.current_fingerprint)
             known_profiles = set(profiles)
             known_profiles.add(result.profile)
             checked_at = _timestamp()
@@ -198,7 +204,18 @@ class EgressGuard:
             "route_fingerprint": route_fingerprint,
             "checked_at": _timestamp(),
         }
+        self._remember_fingerprint(fingerprint)
         self._save_state()
+
+    def _remember_fingerprint(self, fingerprint: str) -> None:
+        if not _valid_fingerprint(fingerprint):
+            return
+        trusted = self._state.setdefault("trusted_fingerprints", [])
+        if not isinstance(trusted, list):
+            trusted = []
+            self._state["trusted_fingerprints"] = trusted
+        if fingerprint not in trusted:
+            trusted.append(fingerprint)
 
     def _fingerprint(self, value: bytes) -> str:
         key = bytes.fromhex(str(self._state["secret"]))
@@ -215,10 +232,23 @@ class EgressGuard:
         except ValueError:
             valid_secret = False
         profiles = raw.get("profiles") if isinstance(raw, Mapping) else None
+        loaded_profiles = dict(profiles) if isinstance(profiles, Mapping) else {}
+        trusted = raw.get("trusted_fingerprints") if isinstance(raw, Mapping) else None
+        trusted_fingerprints: list[str] = []
+        candidates = list(trusted) if isinstance(trusted, list) else []
+        candidates.extend(
+            record.get("fingerprint")
+            for record in loaded_profiles.values()
+            if isinstance(record, Mapping)
+        )
+        for fingerprint in candidates:
+            if _valid_fingerprint(fingerprint) and fingerprint not in trusted_fingerprints:
+                trusted_fingerprints.append(fingerprint)
         return {
-            "version": 1,
+            "version": 2,
             "secret": secret if valid_secret else secrets.token_hex(32),
-            "profiles": dict(profiles) if isinstance(profiles, Mapping) else {},
+            "profiles": loaded_profiles,
+            "trusted_fingerprints": trusted_fingerprints,
         }
 
     def _save_state(self) -> None:
@@ -275,3 +305,12 @@ def resolve_public_ip(proxy_config: ProxyConfig) -> str:
 
 def _timestamp() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _valid_fingerprint(value: object) -> bool:
+    if not isinstance(value, str) or len(value) != 64:
+        return False
+    try:
+        return len(bytes.fromhex(value)) == 32
+    except ValueError:
+        return False

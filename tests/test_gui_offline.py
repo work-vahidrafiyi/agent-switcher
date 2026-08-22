@@ -311,8 +311,8 @@ def test_changed_ip_warning_explains_openai_block_risk_and_is_remembered(monkeyp
     )
     captured = {}
 
-    def capture_message(_parent, _icon, title, text, _buttons, _default, labels):
-        captured.update(title=title, text=text, labels=labels)
+    def capture_message(_parent, _icon, title, text, buttons, default, labels):
+        captured.update(title=title, text=text, buttons=buttons, default=default, labels=labels)
         return QMessageBox.StandardButton.Ok
 
     approved = []
@@ -325,8 +325,10 @@ def test_changed_ip_warning_explains_openai_block_risk_and_is_remembered(monkeyp
 
     assert confirm_egress(GuardStore(), changed, None) is True
     assert "OpenAI may block your account" in captured["text"]
-    assert "will not be shown again" in captured["text"]
-    assert captured["labels"][QMessageBox.StandardButton.Ok] == "Continue and remember"
+    assert "Previously seen IPs will not warn again" in captured["text"]
+    assert captured["buttons"] == QMessageBox.StandardButton.Ok
+    assert captured["default"] == QMessageBox.StandardButton.Ok
+    assert captured["labels"][QMessageBox.StandardButton.Ok] == "Got it"
     assert approved == [changed]
 
 

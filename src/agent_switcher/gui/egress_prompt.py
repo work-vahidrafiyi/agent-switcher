@@ -15,45 +15,30 @@ def confirm_egress(store: Store, result: EgressCheck, parent: Optional[QWidget])
     if result.allowed:
         return True
 
-    if result.status == "changed":
-        title = tr("Public IP changed")
-        message = tr(
-            "Your public IP changed before {purpose} for {profile}.\n\n"
-            "If a request from this new IP reaches OpenAI, OpenAI may block your account.\n\n"
-            "Previous fingerprint: {previous}\n"
-            "Current fingerprint: {current}\n\n"
-            "Continue only if you recognize this network or proxy. "
-            "After you continue, this warning will not be shown again for this IP change.",
-            purpose=tr(result.purpose),
-            profile=result.profile,
-            previous=result.previous_fingerprint[:12],
-            current=result.current_fingerprint[:12],
-        )
-    else:
-        title = tr("Public IP could not be verified")
-        message = tr(
-            "IP Guard could not verify the public route before {purpose} for {profile}. "
-            "No OpenAI request has been sent yet.\n\n{error}\n\n"
-            "Continue once, or cancel and check your connection or proxy.",
-            purpose=tr(result.purpose),
-            profile=result.profile,
-            error=result.error or tr("Public IP service is unavailable."),
-        )
+    title = tr("Public IP changed")
+    message = tr(
+        "Your public IP changed before {purpose} for {profile}.\n\n"
+        "If a request from this new IP reaches OpenAI, OpenAI may block your account.\n\n"
+        "Previous fingerprint: {previous}\n"
+        "Current fingerprint: {current}\n\n"
+        "This new IP fingerprint will be remembered after you acknowledge this warning. "
+        "Previously seen IPs will not warn again.",
+        purpose=tr(result.purpose),
+        profile=result.profile,
+        previous=result.previous_fingerprint[:12],
+        current=result.current_fingerprint[:12],
+    )
 
-    answer = show_message(
+    show_message(
         parent,
         QMessageBox.Icon.Warning,
         title,
         message,
-        QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel,
-        QMessageBox.StandardButton.Cancel,
+        QMessageBox.StandardButton.Ok,
+        QMessageBox.StandardButton.Ok,
         {
-            QMessageBox.StandardButton.Ok: "Continue and remember",
-            QMessageBox.StandardButton.Cancel: "Cancel",
+            QMessageBox.StandardButton.Ok: "Got it",
         },
     )
-    if answer != QMessageBox.StandardButton.Ok:
-        return False
-    if result.status == "changed":
-        store.approve_egress(result)
+    store.approve_egress(result)
     return True

@@ -39,7 +39,7 @@ def test_first_egress_is_trusted_and_only_fingerprint_is_persisted(tmp_path):
     assert "203.0.113.10" not in (tmp_path / "activity.jsonl").read_text(encoding="utf-8")
 
 
-def test_same_ip_is_allowed_and_changed_ip_requires_only_one_approval(tmp_path):
+def test_seen_ips_are_remembered_across_proxy_rotation_and_restarts(tmp_path):
     address = ["198.51.100.1"]
     guard = EgressGuard(tmp_path / "egress.json", resolver=lambda _proxy: address[0])
 
@@ -60,6 +60,31 @@ def test_same_ip_is_allowed_and_changed_ip_requires_only_one_approval(tmp_path):
     assert guard.check("work", "usage_check", ProxyConfig()).status == "same"
     reloaded = EgressGuard(tmp_path / "egress.json", resolver=lambda _proxy: address[0])
     assert reloaded.check("personal", "usage_check", ProxyConfig()).status == "same"
+
+    address[0] = "198.51.100.1"
+    assert reloaded.check("work", "usage_check", ProxyConfig()).status == "same"
+    assert reloaded.check("personal", "usage_check", ProxyConfig()).status == "same"
+
+    address[0] = "198.51.100.3"
+    assert reloaded.check("work", "usage_check", ProxyConfig()).status == "changed"
+
+
+def test_version_one_state_migrates_profile_fingerprints_to_trusted_history(tmp_path):
+    state = tmp_path / "egress.json"
+    address = ["203.0.113.40"]
+    guard = EgressGuard(state, resolver=lambda _proxy: address[0])
+    guard.check("work", "usage_check", ProxyConfig())
+    legacy = json.loads(state.read_text(encoding="utf-8"))
+    legacy["version"] = 1
+    legacy.pop("trusted_fingerprints")
+    state.write_text(json.dumps(legacy), encoding="utf-8")
+
+    migrated = EgressGuard(state, resolver=lambda _proxy: address[0])
+
+    assert migrated.check("work", "usage_check", ProxyConfig()).status == "same"
+    payload = json.loads(state.read_text(encoding="utf-8"))
+    assert payload["version"] == 2
+    assert payload["profiles"]["work"]["fingerprint"] in payload["trusted_fingerprints"]
 
 
 def test_failed_public_ip_check_is_skipped_without_overwriting_baseline(tmp_path):
