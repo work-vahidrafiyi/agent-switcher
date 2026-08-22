@@ -7,7 +7,7 @@ def test_pyproject_is_the_version_source_of_truth():
         project_version = tomllib.load(handle)["project"]["version"]
     package_init = Path("src/agent_switcher/__init__.py").read_text(encoding="utf-8")
 
-    assert project_version == "1.5.2"
+    assert project_version == "1.5.3"
     assert 'version("agent-switcher")' in package_init
     assert f'__version__ = "{project_version}"' not in package_init
 

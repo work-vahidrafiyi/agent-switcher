@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Optional
 
 from PySide6.QtCore import Qt, QUrl
@@ -31,9 +32,16 @@ from .egress_prompt import confirm_egress
 
 
 class AddAccountDialog(QDialog):
-    def __init__(self, store: Store, parent: Optional[QWidget] = None) -> None:
+    def __init__(
+        self,
+        store: Store,
+        parent: Optional[QWidget] = None,
+        *,
+        on_suppress_ip_guard: Optional[Callable[[], None]] = None,
+    ) -> None:
         super().__init__(parent)
         self.store = store
+        self.on_suppress_ip_guard = on_suppress_ip_guard
         self.worker: Optional[LoginWorker] = None
         self.result_name: Optional[str] = None
 
@@ -193,7 +201,9 @@ class AddAccountDialog(QDialog):
 
     def on_egress_attention(self, result: object) -> None:
         if self.worker is not None:
-            self.worker.resolve_egress(confirm_egress(self.store, result, self))
+            self.worker.resolve_egress(
+                confirm_egress(self.store, result, self, self.on_suppress_ip_guard)
+            )
 
     def on_url(self, url: str) -> None:
         self.url_edit.setText(url)

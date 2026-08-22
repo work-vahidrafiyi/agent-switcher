@@ -2,7 +2,7 @@ import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtWidgets import QApplication, QDialog, QFrame, QMessageBox
+from PySide6.QtWidgets import QApplication, QDialog, QFrame, QLabel, QMessageBox, QPushButton
 from PySide6.QtTest import QTest
 
 from agent_switcher.core.activity_log import ActivityLog
@@ -311,9 +311,15 @@ def test_changed_ip_warning_explains_openai_block_risk_and_is_remembered(monkeyp
     )
     captured = {}
 
-    def capture_message(_parent, _icon, title, text, buttons, default, labels):
-        captured.update(title=title, text=text, buttons=buttons, default=default, labels=labels)
-        return QMessageBox.StandardButton.Ok
+    def exec_dialog(dialog):
+        captured.update(
+            text=dialog.findChildren(QLabel)[-1].text(),
+            buttons=[button.text() for button in dialog.findChildren(QPushButton)],
+            checkbox=dialog.checkbox.text(),
+        )
+        dialog.checkbox.setChecked(True)
+        dialog.selected = QMessageBox.StandardButton.Ok
+        return QDialog.DialogCode.Accepted
 
     approved = []
 
@@ -321,15 +327,65 @@ def test_changed_ip_warning_explains_openai_block_risk_and_is_remembered(monkeyp
         def approve_egress(self, result):
             approved.append(result)
 
-    monkeypatch.setattr("agent_switcher.gui.egress_prompt.show_message", capture_message)
+    monkeypatch.setattr(MessageDialog, "exec", exec_dialog)
+    suppressed = []
 
-    assert confirm_egress(GuardStore(), changed, None) is True
+    assert confirm_egress(GuardStore(), changed, None, lambda: suppressed.append(True)) is True
     assert "OpenAI may block your account" in captured["text"]
-    assert "Previously seen IPs will not warn again" in captured["text"]
-    assert captured["buttons"] == QMessageBox.StandardButton.Ok
-    assert captured["default"] == QMessageBox.StandardButton.Ok
-    assert captured["labels"][QMessageBox.StandardButton.Ok] == "Got it"
+    assert sorted(captured["buttons"]) == ["Cancel", "Continue"]
+    assert captured["checkbox"] == "Don't show IP change warnings again"
+    assert suppressed == [True]
     assert approved == [changed]
+
+
+def test_changed_ip_warning_cancel_stops_current_operation(monkeypatch):
+    set_language("en")
+    changed = EgressCheck(
+        "work",
+        "usage_check",
+        "changed",
+        previous_fingerprint="a" * 64,
+        current_fingerprint="b" * 64,
+    )
+
+    def cancel_dialog(dialog):
+        dialog.selected = QMessageBox.StandardButton.Cancel
+        return QDialog.DialogCode.Rejected
+
+    class GuardStore:
+        def approve_egress(self, _result):
+            raise AssertionError("cancelled IP changes must not be approved")
+
+    monkeypatch.setattr(MessageDialog, "exec", cancel_dialog)
+
+    assert confirm_egress(GuardStore(), changed, None) is False
+
+
+def test_suppressing_ip_warnings_persists_the_disabled_setting(tmp_path):
+    app = application()
+    provider = CodexProvider(home=tmp_path / ".codex")
+    provider.home().mkdir(parents=True)
+    settings_store = SettingsStore(tmp_path / "state" / "settings.json")
+    settings = GuiSettings(
+        ip_guard_enabled=True,
+        global_hotkey_enabled=False,
+        onboarding_seen=True,
+        privacy_notice_suppressed=True,
+    )
+    store = Store(provider, activity_log=ActivityLog(tmp_path / "state" / "activity.jsonl"))
+    window = MainWindow(
+        store,
+        PlatformIntegration(app),
+        settings=settings,
+        settings_store=settings_store,
+    )
+
+    window.suppress_ip_guard_warnings()
+
+    assert window.settings.ip_guard_enabled is False
+    assert store.egress_guard.enabled is False
+    assert settings_store.load().ip_guard_enabled is False
+    window.close()
 
 
 def test_switch_warning_hides_process_ids_and_paths(tmp_path, monkeypatch):

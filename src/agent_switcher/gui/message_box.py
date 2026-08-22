@@ -5,6 +5,7 @@ from typing import Mapping, Optional
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QDialog,
+    QCheckBox,
     QHBoxLayout,
     QLabel,
     QMessageBox,
@@ -45,6 +46,7 @@ class MessageDialog(QDialog):
         buttons: QMessageBox.StandardButton,
         default: Optional[QMessageBox.StandardButton],
         labels: Optional[Mapping[QMessageBox.StandardButton, str]] = None,
+        checkbox_label: Optional[str] = None,
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle(title)
@@ -81,6 +83,11 @@ class MessageDialog(QDialog):
         content.addLayout(copy, 1)
         root.addLayout(content)
 
+        self.checkbox: Optional[QCheckBox] = None
+        if checkbox_label:
+            self.checkbox = QCheckBox(tr(checkbox_label))
+            root.addWidget(self.checkbox)
+
         actions = QHBoxLayout()
         actions.addStretch(1)
         default_widget: Optional[QPushButton] = None
@@ -113,6 +120,9 @@ class MessageDialog(QDialog):
     def _choose(self, value: QMessageBox.StandardButton) -> None:
         self.selected = value
         self.accept()
+
+    def checkbox_checked(self) -> bool:
+        return self.checkbox is not None and self.checkbox.isChecked()
 
 
 def show_message(

@@ -28,10 +28,13 @@ class OnboardingDialog(QDialog):
         store: Store,
         on_account_added: Callable[[], None],
         parent: Optional[QWidget] = None,
+        *,
+        on_suppress_ip_guard: Optional[Callable[[], None]] = None,
     ) -> None:
         super().__init__(parent)
         self.store = store
         self.on_account_added = on_account_added
+        self.on_suppress_ip_guard = on_suppress_ip_guard
         self.setWindowTitle(tr("Welcome to Agent Switcher"))
         self.setModal(False)
         self.resize(620, 420)
@@ -111,7 +114,11 @@ class OnboardingDialog(QDialog):
         self.pages.setCurrentIndex(2)
 
     def launch_add_account(self) -> None:
-        dialog = AddAccountDialog(self.store, self)
+        dialog = AddAccountDialog(
+            self.store,
+            self,
+            on_suppress_ip_guard=self.on_suppress_ip_guard,
+        )
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self.on_account_added()
             self.show_done_step()

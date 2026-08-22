@@ -5,6 +5,13 @@ This file lists the changes users will notice in each Agent Switcher release.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.3] - 2026-08-22
+
+### Fixed
+
+- Restore Continue and Cancel actions to the changed-IP warning and add a persistent option to disable future warnings.
+- Read live credentials when checking usage for the active account so refreshed Codex tokens do not produce stale-profile HTTP 401 errors.
+
 ## [1.5.2] - 2026-08-22
 
 ### Fixed

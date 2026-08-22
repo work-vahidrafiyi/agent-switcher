@@ -306,7 +306,9 @@ class MainWindow(QMainWindow):
 
     def on_usage_egress_attention(self, result: object) -> None:
         if self.usage_worker is not None:
-            self.usage_worker.resolve_egress(confirm_egress(self.store, result, self))
+            self.usage_worker.resolve_egress(
+                confirm_egress(self.store, result, self, self.suppress_ip_guard_warnings)
+            )
 
     def on_usage_started(self, name: str) -> None:
         self.usage_inflight.add(name)
@@ -385,7 +387,7 @@ class MainWindow(QMainWindow):
         name = self.pending_switch
         if name is None or result.profile != name:
             return
-        if not confirm_egress(self.store, result, self):
+        if not confirm_egress(self.store, result, self, self.suppress_ip_guard_warnings):
             self.pending_switch = None
             return
         self._complete_switch(name)
@@ -412,7 +414,11 @@ class MainWindow(QMainWindow):
         )
 
     def add_profile(self) -> None:
-        dialog = AddAccountDialog(self.store, self)
+        dialog = AddAccountDialog(
+            self.store,
+            self,
+            on_suppress_ip_guard=self.suppress_ip_guard_warnings,
+        )
         if dialog.exec() == AddAccountDialog.DialogCode.Accepted:
             name = dialog.result_name or tr("new account")
             self.reload()
@@ -594,6 +600,11 @@ class MainWindow(QMainWindow):
         if previous and not self.settings.offline_mode:
             self.refresh_all_usage()
 
+    def suppress_ip_guard_warnings(self) -> None:
+        self.settings = replace(self.settings, ip_guard_enabled=False)
+        self.store.set_egress_guard_enabled(False)
+        self.settings_store.save(self.settings)
+
     def maybe_warn_low_quota(
         self,
         name: str,
@@ -740,7 +751,12 @@ class MainWindow(QMainWindow):
             self.onboarding_dialog.raise_()
             self.onboarding_dialog.activateWindow()
             return
-        dialog = OnboardingDialog(self.store, self.reload, self)
+        dialog = OnboardingDialog(
+            self.store,
+            self.reload,
+            self,
+            on_suppress_ip_guard=self.suppress_ip_guard_warnings,
+        )
         self.onboarding_dialog = dialog
         dialog.finished.connect(self._onboarding_finished)
         dialog.show()

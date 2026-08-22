@@ -4,6 +4,7 @@ import pytest
 
 from agent_switcher.core.providers.codex import CodexProvider
 from agent_switcher.core.store import Store, StoreError
+from agent_switcher.core.usage import Usage
 
 
 def write_json(path, payload):
@@ -31,6 +32,29 @@ def test_switch_syncs_live_before_swapping_so_rotated_token_is_not_lost(tmp_path
     assert read_json(tmp_path / "auth.work.json") == rotated_work
     assert read_json(tmp_path / "auth.json") == personal
     assert store.active() == "personal"
+
+
+def test_usage_reads_live_credentials_for_active_profile(tmp_path):
+    seen = []
+
+    class RecordingProvider(CodexProvider):
+        def fetch_usage(self, profile, activity_log=None, proxy_config=None):
+            seen.append((profile.name, profile.active, profile.path))
+            return Usage.unavailable("fixture")
+
+    store = Store(RecordingProvider(home=tmp_path))
+    write_json(tmp_path / "auth.work.json", {"source": "stale-saved"})
+    write_json(tmp_path / "auth.personal.json", {"source": "saved-inactive"})
+    write_json(tmp_path / "auth.json", {"source": "fresh-live"})
+    store.set_active("work")
+
+    store.fetch_usage(store.profile("work"))
+    store.fetch_usage(store.profile("personal"))
+
+    assert seen == [
+        ("work", True, tmp_path / "auth.json"),
+        ("personal", False, tmp_path / "auth.personal.json"),
+    ]
 
 
 def test_profile_discovery_ignores_auth_json_and_malformed_names(tmp_path):

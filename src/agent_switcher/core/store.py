@@ -152,10 +152,12 @@ class Store:
             return Usage.unavailable("Usage is not supported by this provider.")
         try:
             current = self.active()
+            active = current == profile.name
+            credential_path = self.auth_file if active and self.auth_file.is_file() else profile.path
             usage_profile = Profile(
                 name=profile.name,
-                active=current == profile.name,
-                path=profile.path,
+                active=active,
+                path=credential_path,
                 identity=profile.identity,
             )
             parameters = inspect.signature(fetcher).parameters
